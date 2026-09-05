@@ -1,0 +1,277 @@
+:root {
+  --white-key: #f5f5f0;
+  --white-key-active: #cfe8ff;
+  --black-key: #1a1a1a;
+  --black-key-active: #2e5f8a;
+  --bg: #101014;
+  --panel: #1b1b1f;
+  --text: #e8e8ec;
+  --muted: #8a8a94;
+  --accent: #4aa8ff;
+  --black-offset: 18px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.app-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+/* Keybed */
+.keybed {
+  position: relative;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+}
+
+.keybed-whites {
+  display: flex;
+  gap: 2px;
+}
+
+.key {
+  border: none;
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 12px;
+  font-family: inherit;
+}
+
+.key.white {
+  flex: 1;
+  height: 180px;
+  background: var(--white-key);
+  color: #333;
+  border-radius: 0 0 6px 6px;
+  transition: background 0.05s ease;
+}
+
+.key.white.active {
+  background: var(--white-key-active);
+}
+
+.key-note {
+  font-size: 10px;
+  color: #999;
+  margin-top: 4px;
+}
+
+.key-label {
+  font-weight: 600;
+  font-size: 12px;
+  color: #555;
+}
+
+.keybed-blacks {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 110px;
+  pointer-events: none;
+}
+
+.key.black {
+  position: absolute;
+  top: 0;
+  width: 28px;
+  height: 110px;
+  background: var(--black-key);
+  color: #ddd;
+  border-radius: 0 0 4px 4px;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  z-index: 2;
+  transition: background 0.05s ease;
+}
+
+.key.black.active {
+  background: var(--black-key-active);
+}
+
+.key.black .key-label {
+  color: #aaa;
+}
+
+/* Controls */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 16px;
+  background: var(--panel);
+  border-radius: 12px;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.control-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.voice-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.voice-btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.voice-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.octave-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.octave-control button {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.octave-control button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.octave-value {
+  min-width: 24px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="range"] {
+  accent-color: var(--accent);
+}
+
+/* Preset panel */
+.preset-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--panel);
+  border-radius: 12px;
+}
+
+.preset-panel button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.preset-import {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  min-width: 240px;
+  align-items: flex-start;
+}
+
+.preset-import textarea {
+  flex: 1;
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: var(--text);
+  padding: 8px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.preset-message {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hint {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  margin: 0;
+}
+
+.audio-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 100;
+}
+
+.audio-overlay span {
+  padding: 16px 24px;
+  background: var(--accent);
+  border-radius: 12px;
+  color: #fff;
+  font-weight: 600;
+}
