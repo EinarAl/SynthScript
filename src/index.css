@@ -41,6 +41,15 @@ body {
   letter-spacing: 0.02em;
 }
 
+.samples-loading {
+  font-size: 13px;
+  color: var(--muted);
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid #2a2a30;
+}
+
 /* Keybed */
 .keybed {
   position: relative;

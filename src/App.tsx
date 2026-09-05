@@ -8,7 +8,7 @@ import { validatePreset, type Preset } from './engine/presets'
 const DEFAULT_BASE_C = 48 // C3
 
 export default function App() {
-  const { activeNotes, noteOn, noteOff, allNotesOff, preset, setPreset, setMasterGain, presets } = useSynth()
+  const { activeNotes, noteOn, noteOff, allNotesOff, preset, setPreset, setMasterGain, presets, samplesLoading } = useSynth()
   const [baseC, setBaseC] = useState(DEFAULT_BASE_C)
   const [masterGain, setMasterGainLocal] = useState(0.8)
   const [audioBlocked, setAudioBlocked] = useState(false)
@@ -52,6 +52,9 @@ export default function App() {
   return (
     <div className="app">
       <h1 className="app-title">Keybed</h1>
+      {samplesLoading && (
+        <div className="samples-loading">Loading samples...</div>
+      )}
       {audioBlocked && (
         <div className="audio-overlay" onClick={unlock}>
           <span>Click anywhere to enable audio</span>
@@ -64,6 +67,7 @@ export default function App() {
         baseC={baseC}
         octave={octave}
         masterGain={masterGain}
+        samplesLoading={samplesLoading}
         onSelectPreset={selectPreset}
         onOctaveChange={onOctaveChange}
         onMasterGainChange={onMasterGainChange}

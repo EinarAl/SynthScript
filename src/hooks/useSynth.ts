@@ -1,16 +1,25 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { SynthEngine } from '../engine/synthEngine'
-import { getPreset, presets, type Preset } from '../engine/presets'
+import { getPreset, type Preset } from '../engine/presets'
 import { keyToMidi } from '../engine/keymap'
 
 export function useSynth() {
   const engineRef = useRef<SynthEngine | null>(null)
   if (engineRef.current === null) {
-    engineRef.current = new SynthEngine(getPreset('piano'))
+    engineRef.current = new SynthEngine(getPreset('clean'))
   }
   const [activeNotes, setActiveNotes] = useState<Set<number>>(new Set())
-  const [preset, setPresetState] = useState<Preset>(getPreset('piano'))
+  const [preset, setPresetState] = useState<Preset>(getPreset('clean'))
+  const [samplesLoading, setSamplesLoading] = useState(true)
   const activeRef = useRef<Set<number>>(new Set())
+
+  useEffect(() => {
+    let cancelled = false
+    engineRef.current?.preloadSamples().then(() => {
+      if (!cancelled) setSamplesLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [])
 
   const noteOn = useCallback((note: number, velocity?: number) => {
     engineRef.current?.resume()
@@ -45,7 +54,7 @@ export function useSynth() {
     setActiveNotes(next)
   }, [])
 
-  return { activeNotes, noteOn, noteOff, allNotesOff, preset, setPreset, setMasterGain, presets }
+  return { activeNotes, noteOn, noteOff, allNotesOff, preset, setPreset, setMasterGain, presets: [getPreset('clean'), getPreset('piano'), getPreset('synth'), getPreset('harpsichord'), getPreset('organ'), getPreset('dusk')], samplesLoading }
 }
 
 export function useKeyboardInput(opts: {

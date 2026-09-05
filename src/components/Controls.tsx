@@ -6,6 +6,7 @@ interface ControlsProps {
   baseC: number
   octave: number
   masterGain: number
+  samplesLoading: boolean
   onSelectPreset: (p: Preset) => void
   onOctaveChange: (o: number) => void
   onMasterGainChange: (v: number) => void
@@ -17,6 +18,7 @@ export default function Controls({
   baseC,
   octave,
   masterGain,
+  samplesLoading,
   onSelectPreset,
   onOctaveChange,
   onMasterGainChange,
@@ -26,15 +28,20 @@ export default function Controls({
       <div className="control-group">
         <span className="control-label">Voice</span>
         <div className="voice-buttons">
-          {presets.map((p) => (
-            <button
-              key={p.id}
-              className={`voice-btn ${p.id === current.id ? 'active' : ''}`}
-              onClick={() => onSelectPreset(p)}
-            >
-              {p.name}
-            </button>
-          ))}
+          {presets.map((p) => {
+            const disabled = samplesLoading && p.voiceKind === 'sample'
+            return (
+              <button
+                key={p.id}
+                className={`voice-btn ${p.id === current.id ? 'active' : ''}`}
+                onClick={() => onSelectPreset(p)}
+                disabled={disabled}
+                style={disabled ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+              >
+                {p.name}
+              </button>
+            )
+          })}
         </div>
       </div>
 
