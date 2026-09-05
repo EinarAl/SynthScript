@@ -38,7 +38,14 @@ export function useSynth() {
     engineRef.current?.setMasterGain(v)
   }, [])
 
-  return { activeNotes, noteOn, noteOff, preset, setPreset, setMasterGain, presets }
+  const allNotesOff = useCallback(() => {
+    engineRef.current?.allNotesOff()
+    const next = new Set<number>()
+    activeRef.current = next
+    setActiveNotes(next)
+  }, [])
+
+  return { activeNotes, noteOn, noteOff, allNotesOff, preset, setPreset, setMasterGain, presets }
 }
 
 export function useKeyboardInput(opts: {

@@ -1,19 +1,24 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Keybed from './components/Keybed'
 import Controls from './components/Controls'
 import PresetPanel from './components/PresetPanel'
 import { useSynth, useKeyboardInput } from './hooks/useSynth'
-import { validatePreset } from './engine/presets'
+import { validatePreset, type Preset } from './engine/presets'
 
 const DEFAULT_BASE_C = 48 // C3
 
 export default function App() {
-  const { activeNotes, noteOn, noteOff, preset, setPreset, setMasterGain, presets } = useSynth()
+  const { activeNotes, noteOn, noteOff, allNotesOff, preset, setPreset, setMasterGain, presets } = useSynth()
   const [baseC, setBaseC] = useState(DEFAULT_BASE_C)
   const [masterGain, setMasterGainLocal] = useState(0.8)
   const [audioBlocked, setAudioBlocked] = useState(false)
 
   const octave = Math.floor((baseC - 12) / 12)
+
+  const selectPreset = useCallback((p: Preset) => {
+    allNotesOff()
+    setPreset(p)
+  }, [allNotesOff, setPreset])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -21,12 +26,13 @@ export default function App() {
     if (p) {
       try {
         const preset = validatePreset(JSON.parse(decodeURIComponent(p)))
-        if (preset) setPreset(preset)
+        if (preset) selectPreset(preset)
       } catch {}
     }
-  }, [setPreset])
+  }, [selectPreset])
 
   const onOctaveChange = (o: number) => {
+    allNotesOff()
     setBaseC(12 + o * 12)
   }
 
@@ -58,11 +64,11 @@ export default function App() {
         baseC={baseC}
         octave={octave}
         masterGain={masterGain}
-        onSelectPreset={setPreset}
+        onSelectPreset={selectPreset}
         onOctaveChange={onOctaveChange}
         onMasterGainChange={onMasterGainChange}
       />
-      <PresetPanel current={preset} onImport={setPreset} />
+      <PresetPanel current={preset} onImport={selectPreset} />
       <p className="hint">
         Play with your keyboard. A–; are the white keys, W E T Y U O P are the black keys.
       </p>
