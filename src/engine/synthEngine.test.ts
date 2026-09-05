@@ -70,7 +70,7 @@ function createEngine(): { engine: SynthEngine; ctx: CtxStub } {
 
   ;(globalThis as Record<string, unknown>).AudioContext = vi.fn(() => audioCtxStub)
 
-  return { engine: new SynthEngine(getPreset('piano')), ctx }
+  return { engine: new SynthEngine(getPreset('clean')), ctx }
 }
 
 beforeEach(() => {

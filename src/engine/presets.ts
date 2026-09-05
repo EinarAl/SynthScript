@@ -15,8 +15,8 @@ export interface Preset {
 
 export const presets: Preset[] = [
   {
-    id: 'piano',
-    name: 'Piano',
+    id: 'clean',
+    name: 'Clean',
     wave: 'triangle',
     attack: 0.005,
     decay: 0.4,
@@ -57,8 +57,8 @@ export const presets: Preset[] = [
     gain: 0.28,
   },
   {
-    id: 'organ',
-    name: 'Organ',
+    id: 'dusk',
+    name: 'Dusk',
     wave: 'sine',
     attack: 0.01,
     decay: 0.05,

@@ -3,11 +3,11 @@ import { getPreset, validatePreset, serializePreset } from './presets'
 
 describe('getPreset', () => {
   it('returns a preset by id', () => {
-    expect(getPreset('piano').id).toBe('piano')
+    expect(getPreset('clean').id).toBe('clean')
   })
 
   it('falls back to first preset for unknown id', () => {
-    expect(getPreset('does-not-exist').id).toBe('piano')
+    expect(getPreset('does-not-exist').id).toBe('clean')
   })
 })
 
@@ -23,12 +23,12 @@ describe('validatePreset', () => {
   })
 
   it('rejects invalid wave types', () => {
-    const p = { ...getPreset('piano'), wave: 'banana' }
+    const p = { ...getPreset('synth'), wave: 'banana' }
     expect(validatePreset(p)).toBeNull()
   })
 
   it('rejects missing numeric fields', () => {
-    const p = { ...getPreset('piano') }
+    const p = { ...getPreset('synth') }
     delete (p as Record<string, unknown>).attack
     expect(validatePreset(p)).toBeNull()
   })
