@@ -8,7 +8,7 @@ import { validatePreset, type Preset } from './engine/presets'
 const DEFAULT_BASE_C = 48 // C3
 
 export default function App() {
-  const { activeNotes, noteOn, noteOff, allNotesOff, preset, setPreset, setMasterGain, presets, samplesLoading } = useSynth()
+  const { activeNotes, noteOn, noteOff, allNotesOff, preset, setPreset, setMasterGain, presets, samplesLoading, loopState, metronomeOn, bpm, toggleMetronome, setTempo, startLoopRecording, stopLoop, cancelRecording } = useSynth()
   const [baseC, setBaseC] = useState(DEFAULT_BASE_C)
   const [masterGain, setMasterGainLocal] = useState(0.8)
   const [audioBlocked, setAudioBlocked] = useState(false)
@@ -36,12 +36,17 @@ export default function App() {
     setBaseC(12 + o * 12)
   }
 
+  const onOctaveShift = (dir: 1 | -1) => {
+    const next = Math.max(0, Math.min(6, octave + dir))
+    onOctaveChange(next)
+  }
+
   const onMasterGainChange = (v: number) => {
     setMasterGainLocal(v)
     setMasterGain(v)
   }
 
-  useKeyboardInput({ baseC, onNoteOn: noteOn, onNoteOff: noteOff })
+  useKeyboardInput({ baseC, onNoteOn: noteOn, onNoteOff: noteOff, onOctaveShift })
 
   const unlock = () => {
     noteOn(baseC);
@@ -71,10 +76,18 @@ export default function App() {
         onSelectPreset={selectPreset}
         onOctaveChange={onOctaveChange}
         onMasterGainChange={onMasterGainChange}
+        loopState={loopState}
+        metronomeOn={metronomeOn}
+        bpm={bpm}
+        onToggleMetronome={toggleMetronome}
+        onTempoChange={setTempo}
+        onRecord={startLoopRecording}
+        onStopLoop={stopLoop}
+        onCancelRecording={cancelRecording}
       />
       <PresetPanel current={preset} onImport={selectPreset} />
       <p className="hint">
-        Play with your keyboard. A–; are the white keys, W E T Y U O P are the black keys.
+        Play with your keyboard. A–; are the white keys, W E T Y U O P are the black keys. Up/Down arrows shift octave.
       </p>
     </div>
   )

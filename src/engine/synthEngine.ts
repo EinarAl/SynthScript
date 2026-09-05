@@ -7,6 +7,7 @@ interface Voice {
   sources: AudioScheduledSourceNode[]
   gain: GainNode
   filter: BiquadFilterNode
+  preset: Preset
 }
 
 export class SynthEngine {
@@ -90,7 +91,19 @@ export class SynthEngine {
 
   noteOn(noteNumber: number, velocity: number = 1): void {
     const ctx = this.ensureContext()
-    const p = this.preset
+    this.startVoice(noteNumber, velocity, this.preset, ctx.currentTime)
+  }
+
+  // Render a voice with an explicit preset starting at an absolute context time.
+  // Used by the loop scheduler so recorded layers keep the voice they were
+  // captured with regardless of the currently selected preset.
+  noteOnAt(noteNumber: number, velocity: number, preset: Preset, at: number): void {
+    this.ensureContext()
+    this.startVoice(noteNumber, velocity, preset, at)
+  }
+
+  private startVoice(noteNumber: number, velocity: number, p: Preset, at: number): void {
+    const ctx = this.ensureContext()
 
     const env = ctx.createGain()
     const filter = ctx.createBiquadFilter()
@@ -98,7 +111,7 @@ export class SynthEngine {
     filter.frequency.value = p.filterFreq
     filter.Q.value = p.filterQ
 
-    const now = ctx.currentTime
+    const now = at
     const peak = p.gain * Math.max(0.05, Math.min(1, velocity))
     env.gain.setValueAtTime(0.0001, now)
     env.gain.exponentialRampToValueAtTime(
@@ -150,15 +163,24 @@ export class SynthEngine {
       }
     }
 
-    this.voices.set(noteNumber, { kind, sources, gain: env, filter })
+    this.voices.set(noteNumber, { kind, sources, gain: env, filter, preset: p })
   }
 
   noteOff(noteNumber: number): void {
+    this.releaseVoice(noteNumber, this.ctx ? this.ctx.currentTime : 0)
+  }
+
+  // Release a loop voice at an absolute context time so the release envelope
+  // lands on the loop grid instead of whenever the release arrives.
+  noteOffAt(noteNumber: number, at: number): void {
+    this.releaseVoice(noteNumber, at)
+  }
+
+  private releaseVoice(noteNumber: number, at: number): void {
     const voice = this.voices.get(noteNumber)
     if (!voice || !this.ctx) return
-    const ctx = this.ctx
-    const now = ctx.currentTime
-    const p = this.preset
+    const now = at
+    const p = voice.preset
 
     voice.gain.gain.cancelScheduledValues(now)
     voice.gain.gain.setValueAtTime(Math.max(voice.gain.gain.value, 0.0001), now)
@@ -188,5 +210,31 @@ export class SynthEngine {
     for (const note of [...this.voices.keys()]) {
       this.noteOff(note)
     }
+  }
+
+  getCurrentTime(): number {
+    return this.ensureContext().currentTime
+  }
+
+  // Schedule a short metronome click at an absolute context time. Accents are
+  // slightly louder and higher pitched so the downbeat of each bar stands out.
+  click(at: number, accent: boolean = false): void {
+    const ctx = this.ensureContext()
+    const master = this.master
+    if (!master) return
+
+    const osc = ctx.createOscillator()
+    osc.type = 'square'
+    osc.frequency.value = accent ? 1760 : 1175
+
+    const env = ctx.createGain()
+    const peak = accent ? 0.18 : 0.1
+    env.gain.setValueAtTime(peak, at)
+    env.gain.exponentialRampToValueAtTime(0.0001, at + 0.04)
+
+    osc.connect(env)
+    env.connect(master)
+    osc.start(at)
+    osc.stop(at + 0.05)
   }
 }

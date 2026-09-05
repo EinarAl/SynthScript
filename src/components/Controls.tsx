@@ -1,4 +1,11 @@
+import { useState } from 'react'
 import type { Preset } from '../engine/presets'
+
+interface LoopState {
+  layers: number
+  recording: boolean
+  recordingBar: number | null
+}
 
 interface ControlsProps {
   presets: Preset[]
@@ -7,10 +14,20 @@ interface ControlsProps {
   octave: number
   masterGain: number
   samplesLoading: boolean
+  loopState: LoopState
+  metronomeOn: boolean
+  bpm: number
   onSelectPreset: (p: Preset) => void
   onOctaveChange: (o: number) => void
   onMasterGainChange: (v: number) => void
+  onToggleMetronome: () => void
+  onTempoChange: (v: number) => void
+  onRecord: (bars: number) => void
+  onStopLoop: () => void
+  onCancelRecording: () => void
 }
+
+const LOOP_BARS = [1, 2, 4, 8]
 
 export default function Controls({
   presets,
@@ -19,10 +36,20 @@ export default function Controls({
   octave,
   masterGain,
   samplesLoading,
+  loopState,
+  metronomeOn,
+  bpm,
   onSelectPreset,
   onOctaveChange,
   onMasterGainChange,
+  onToggleMetronome,
+  onTempoChange,
+  onRecord,
+  onStopLoop,
+  onCancelRecording,
 }: ControlsProps) {
+  const [selectedBars, setSelectedBars] = useState(4)
+  const recording = loopState.recording
   return (
     <div className="controls">
       <div className="control-group">
@@ -64,6 +91,68 @@ export default function Controls({
           value={masterGain}
           onChange={(e) => onMasterGainChange(Number(e.target.value))}
         />
+      </div>
+
+      <div className={`control-group transport ${recording ? 'recording' : ''}`}>
+        <span className="control-label">Metronome</span>
+        <div className="transport-row">
+          <button
+            className={`transport-btn ${metronomeOn ? 'active' : ''}`}
+            onClick={onToggleMetronome}
+          >
+            {metronomeOn ? 'On' : 'Off'}
+          </button>
+          <input
+            type="range"
+            min={40}
+            max={240}
+            step={1}
+            value={bpm}
+            aria-label="Tempo"
+            onChange={(e) => onTempoChange(Number(e.target.value))}
+          />
+          <span className="bpm-value">{bpm} BPM</span>
+        </div>
+        <span className="control-label">Looper</span>
+        <div className="transport-row">
+          {recording ? (
+            <>
+              <button className="transport-btn recording" onClick={onCancelRecording}>
+                Cancel
+              </button>
+              <span className="loop-status">
+                Recording bar {loopState.recordingBar}
+              </span>
+            </>
+          ) : (
+            <>
+              <button
+                className={`transport-btn record ${loopState.layers > 0 ? 'active' : ''}`}
+                onClick={() => onRecord(selectedBars)}
+              >
+                {loopState.layers > 0 ? 'Layer' : 'Record'}
+              </button>
+              <select
+                aria-label="Loop length"
+                className="loop-length"
+                value={selectedBars}
+                onChange={(e) => setSelectedBars(Number(e.target.value))}
+              >
+                {LOOP_BARS.map((bars) => (
+                  <option key={bars} value={bars}>{bars} bars</option>
+                ))}
+              </select>
+              {loopState.layers > 0 && (
+                <button className="transport-btn" onClick={onStopLoop}>
+                  Stop
+                </button>
+              )}
+            </>
+          )}
+          <span className="loop-status">
+            {loopState.layers > 0 ? `${loopState.layers} layer${loopState.layers > 1 ? 's' : ''}` : 'No loop'}
+          </span>
+        </div>
       </div>
     </div>
   )

@@ -226,3 +226,41 @@ describe('orphaned-voice safety', () => {
     expect(ctx.stopped).toHaveLength(1)
   })
 })
+
+describe('scheduled voices (noteOnAt / noteOffAt)', () => {
+  it('starts a voice at the scheduled absolute time', () => {
+    const { engine, ctx } = createEngine('clean')
+    engine.noteOnAt(60, 1, getPreset('clean'), 5)
+    expect(ctx.createdOscs).toHaveLength(1)
+    expect(ctx.createdOscs[0].start).toHaveBeenCalledWith(5)
+  })
+
+  it('releases with the scheduled preset at the scheduled time', () => {
+    const { engine, ctx } = createEngine('clean')
+    engine.noteOnAt(60, 1, getPreset('synth'), 5)
+    engine.noteOffAt(60, 6)
+    // synth has a 0.4s release; stop fires at release+0.05 after the off time
+    expect(ctx.createdOscs[0].stop).toHaveBeenCalledWith(6 + 0.4 + 0.05)
+  })
+
+  it('keeps loop voices (offset+128) distinct from live voices', () => {
+    const { engine, ctx } = createEngine('clean')
+    engine.noteOn(60)
+    engine.noteOnAt(60 + 128, 1, getPreset('dusk'), 0)
+    // both are separate oscillator starts; live noteOff for 60 must not kill 188
+    expect(ctx.createdOscs).toHaveLength(2)
+    engine.noteOff(60)
+    expect(ctx.createdOscs[0].stop).toHaveBeenCalled()
+    expect(ctx.createdOscs[1].stop).not.toHaveBeenCalled()
+    engine.noteOffAt(60 + 128, 0)
+    expect(ctx.createdOscs[1].stop).toHaveBeenCalled()
+  })
+
+  it('click emits an oscillator at the requested time', () => {
+    const { engine, ctx } = createEngine('clean')
+    engine.click(3, true)
+    expect(ctx.createdOscs).toHaveLength(1)
+    expect(ctx.createdOscs[0].start).toHaveBeenCalledWith(3)
+    expect(ctx.createdOscs[0].stop).toHaveBeenCalled()
+  })
+})

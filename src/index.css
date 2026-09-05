@@ -212,6 +212,75 @@ input[type="range"] {
   accent-color: var(--accent);
 }
 
+/* Transport */
+.transport {
+  margin-left: auto;
+  border: 1px solid #333;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.transport.recording {
+  border-color: #e5484d;
+}
+
+.transport-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.transport-btn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.transport-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.transport-btn.recording {
+  background: #e5484d;
+  border-color: #e5484d;
+  color: #fff;
+  animation: transport-pulse 0.8s ease-in-out infinite;
+}
+
+@keyframes transport-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.loop-length {
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.bpm-value {
+  min-width: 64px;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.loop-status {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Preset panel */
 .preset-panel {
   display: flex;
