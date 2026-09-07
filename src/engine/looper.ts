@@ -35,7 +35,7 @@ export interface LoopStateChanged {
 
 const LOOKAHEAD_SECONDS = 0.25
 const TICK_MS = 25
-const LOOP_OFFSET = 128 // keeps loop voices out of the live-voice range
+const LOOP_OFFSET = 128 // voice-key separation only; audible pitch stays unchanged
 const BEATS_PER_BAR = 4
 const COUNTIN_BEATS = 3 // warning clicks heard before recording begins
 

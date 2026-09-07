@@ -10,6 +10,8 @@ interface Voice {
   preset: Preset
 }
 
+const LOOP_KEY_OFFSET = 128 // keeps loop voices out of the live-voice range
+
 export class SynthEngine {
   private ctx: AudioContext | null = null
   private master: GainNode | null = null
@@ -105,6 +107,11 @@ export class SynthEngine {
   private startVoice(noteNumber: number, velocity: number, p: Preset, at: number): void {
     const ctx = this.ensureContext()
 
+    // Loop voices arrive keyed at note+128 so they never collide with a live
+    // voice on the same key. The real MIDI note is stored below the offset so
+    // sample banks resolve and oscillator frequencies stay in the audible range.
+    const midiNote = noteNumber >= LOOP_KEY_OFFSET ? noteNumber - LOOP_KEY_OFFSET : noteNumber
+
     const env = ctx.createGain()
     const filter = ctx.createBiquadFilter()
     filter.type = p.filterType
@@ -134,7 +141,7 @@ export class SynthEngine {
       if (!bankName) return
       const bank = this.loadedBanks.get(bankName)
       if (!bank) return
-      const hit = nearestNote(bank, noteNumber)
+      const hit = nearestNote(bank, midiNote)
       if (!hit) return
 
       const src = ctx.createBufferSource()
@@ -150,7 +157,7 @@ export class SynthEngine {
       src.start(now + 0.005)
       sources.push(src)
     } else {
-      const freq = midiToFrequency(noteNumber)
+      const freq = midiToFrequency(midiNote)
       const oscCount = p.detune > 0 ? 2 : 1
       for (let i = 0; i < oscCount; i++) {
         const osc = ctx.createOscillator()

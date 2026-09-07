@@ -256,6 +256,17 @@ describe('scheduled voices (noteOnAt / noteOffAt)', () => {
     expect(ctx.createdOscs[1].stop).toHaveBeenCalled()
   })
 
+  it('plays loop voices at the same audible pitch as the live note', () => {
+    const { engine, ctx } = createEngine('clean')
+    engine.noteOn(60)
+    engine.noteOnAt(60 + 128, 1, getPreset('clean'), 0)
+    // key separation at +128 must NOT transpose the pitch into the inaudible
+    // ultrasonic range; the loop voice sounds like the note that was recorded
+    expect(ctx.createdOscs).toHaveLength(2)
+    const midi60Hz = ctx.createdOscs[0].frequency.value
+    expect(ctx.createdOscs[1].frequency.value).toBe(midi60Hz)
+  })
+
   it('click emits an oscillator at the requested time', () => {
     const { engine, ctx } = createEngine('clean')
     engine.click(3, true)
