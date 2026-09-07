@@ -213,15 +213,91 @@ describe('Looper recording', () => {
     h.ctx.currentTime = 4.01
     h.queue.runAll()
 
-    // loop now scheduled; first cycle starts at the next aligned boundary
+    // loop now scheduled; first cycle stacks right where the take ended
     h.ctx.currentTime = 10.0
     h.queue.runAll()
 
     // deterministically check the scheduled start time: gridStart=2, duration=2,
-    // cycleStart aligned up from 4 to the next bar boundary = 4 (already on a bar)
+    // first cycle cursor = gridStart + duration = 4
     const starts = h.ctx.createdOscs.map((o) => (o.start as ReturnType<typeof vi.fn>).mock.calls[0][0])
     expect(starts).toContain(4.1) // note at cycleStart + (2.1-2)=0.1 -> 4.1
     const stops = h.ctx.createdOscs.map((o) => (o.stop as ReturnType<typeof vi.fn>).mock.calls[0][0])
     expect(stops).toContain(4.85) // release at 4.5 + clean release 0.3 + 0.05
+  })
+
+  it('uses a 3-beat count-in ending on the downbeat', () => {
+    const h = makeHarness()
+    const lo = new Looper({ engine: h.engine, setInterval: (fn, ms) => h.queue.register(fn, ms) })
+
+    h.ctx.currentTime = 0
+    // at 120bpm one beat = 0.5s; 3-beat count-in ends at the bar boundary 2.0
+    const { gridStart, countInStart } = lo.startRecording(120, 1, 0)
+
+    expect(gridStart).toBe(2) // 2.0s is a bar boundary (2 = 1 bar * 2s)
+    expect(countInStart).toBe(0.5) // clicks at 0.5, 1.0, 1.5 lead into the take
+
+    // state reports counting in before the grid opens
+    const states: Array<{ recording: boolean; countingIn: boolean; recordingBar: number | null; countInBeats: number | null }> = []
+    lo.onStateChanged((s) => states.push(s))
+
+    h.ctx.currentTime = 0.4
+    h.queue.runAll()
+    expect(states[0].recording).toBe(true)
+    expect(states[0].countingIn).toBe(true)
+    expect(states[0].recordingBar).toBeNull()
+    // clicks at 0.5, 1.0, 1.5 are still to come
+    expect(states[states.length - 1].countInBeats).toBe(3)
+
+    h.ctx.currentTime = 2.1
+    h.queue.runAll()
+    const active = states[states.length - 1]
+    expect(active.countingIn).toBe(false)
+    expect(active.recordingBar).toBe(1)
+    expect(active.countInBeats).toBeNull()
+  })
+
+  it('counts in 3 clicks even when the bar boundary would clip the lead-up', () => {
+    const h = makeHarness()
+    const lo = new Looper({ engine: h.engine, setInterval: (fn, ms) => h.queue.register(fn, ms) })
+
+    // right on a bar boundary: aligning now+3beats would give gridStart=now,
+    // so it rolls over to the next bar and keeps the full 3 clicks audible
+    h.ctx.currentTime = 2.0
+    const { gridStart, countInStart } = lo.startRecording(120, 1, 2.0)
+
+    expect(gridStart).toBe(4)
+    expect(countInStart).toBe(2.5)
+  })
+
+  it('loops back immediately after recording ends, even when the finalize tick runs late', () => {
+    const h = makeHarness()
+    const lo = new Looper({ engine: h.engine, setInterval: (fn, ms) => h.queue.register(fn, ms) })
+
+    h.ctx.currentTime = 0
+    lo.startRecording(120, 1, 0)
+    h.ctx.currentTime = 2.1
+    lo.capture(true, 60, 1, getPreset('clean'))
+    h.ctx.currentTime = 2.5
+    lo.capture(false, 60, 1, getPreset('clean'))
+
+    // recording window ends at gridStart(2) + 2s = 4.0; the first scheduler
+    // tick that notices fires late (past the old 20ms guard)
+    h.ctx.currentTime = 4.09
+    h.queue.runAll()
+
+    // first playback cycle should still be scheduled right at the tail of the
+    // take, not skipped: note on at 4.1, release-start at 4.5
+    const starts = h.ctx.createdOscs.map((o) => (o.start as ReturnType<typeof vi.fn>).mock.calls[0][0])
+    const stops = h.ctx.createdOscs.map((o) => (o.stop as ReturnType<typeof vi.fn>).mock.calls[0][0])
+    expect(starts).toContain(4.1)
+    expect(stops).toContain(4.85)
+
+    // and it keeps cycling on later ticks
+    h.ctx.currentTime = 6.1
+    h.queue.runAll()
+    expect(lo.getLayerCount()).toBe(1)
+    expect((lo as unknown as { layerCursor: Map<number, number> }).layerCursor.get(
+      (lo as unknown as { layers: Array<{ id: number }> }).layers[0].id,
+    )).toBeGreaterThan(6)
   })
 })

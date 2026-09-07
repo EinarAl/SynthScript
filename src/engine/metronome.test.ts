@@ -187,4 +187,18 @@ describe('Metronome', () => {
     h.queue.runAll()
     expect(h.ctx.createdOscs).toHaveLength(0)
   })
+
+  it('startAt places the first click at an explicit absolute time', () => {
+    const h = makeHarness()
+    const met = new Metronome({ engine: h.engine, setInterval: (fn, ms) => h.queue.register(fn, ms) })
+
+    h.ctx.currentTime = 0
+    met.startAt(120, 3.0)
+    h.ctx.currentTime = 3.1
+    h.queue.runAll()
+
+    // beats at 3.0, then 3.5 beyond lookahead -> only the first is scheduled
+    const times = h.ctx.createdOscs.map((o) => (o.start as ReturnType<typeof vi.fn>).mock.calls[0][0])
+    expect(times).toEqual([3.0])
+  })
 })

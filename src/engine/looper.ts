@@ -29,13 +29,15 @@ export interface LoopStateChanged {
   layers: number
   recording: boolean
   recordingBar: number | null
+  countingIn: boolean
+  countInBeats: number | null
 }
 
 const LOOKAHEAD_SECONDS = 0.25
 const TICK_MS = 25
 const LOOP_OFFSET = 128 // keeps loop voices out of the live-voice range
 const BEATS_PER_BAR = 4
-const COUNTING_BARS = 1
+const COUNTIN_BEATS = 3 // warning clicks heard before recording begins
 
 // Captures live keyboard input into discrete note events and replays them on a
 // shared bar-aligned grid. Live input is the only thing recorded: already
@@ -54,6 +56,7 @@ export class Looper {
   private recordingBarTotal = 0
   private recordingBarElapsed = 0
   private gridStart = 0
+  private countInStart = 0
   private recordingStopTime = 0
   private buffer: LoopEvent[] = []
   private activeRecordingNotes = new Set<number>()
@@ -73,7 +76,7 @@ export class Looper {
   }
 
   initialState(): LoopStateChanged {
-    return { layers: 0, recording: false, recordingBar: null }
+    return { layers: 0, recording: false, recordingBar: null, countingIn: false, countInBeats: null }
   }
 
   isRecording(): boolean {
@@ -86,7 +89,12 @@ export class Looper {
     return () => this.listeners.delete(fn)
   }
 
-  startRecording(bpm: number, barCount: number, now: number): void {
+  // Begin capturing after a 3-beat count-in. The recording window is anchored
+  // to the first bar boundary at least COUNTIN_BEATS after now, so layers start
+  // on a downbeat and every layer shares the same absolute bar grid. Returns
+  // the grid start and the count-in start so the caller can drive the
+  // metronome clicks into alignment.
+  startRecording(bpm: number, barCount: number, now: number): { gridStart: number; countInStart: number } {
     this.cancelRecording()
     this.stopped = false
     this.secondsPerBar = (60 / bpm) * BEATS_PER_BAR
@@ -95,14 +103,21 @@ export class Looper {
     this.buffer = []
     this.activeRecordingNotes.clear()
 
-    // Anchor the grid one count-in bar after the current position so the
-    // recording starts on a fresh downbeat.
-    this.gridStart = now + this.secondsPerBar * COUNTING_BARS
+    const beat = 60 / bpm
+    this.gridStart = this.alignUp(now + COUNTIN_BEATS * beat, this.secondsPerBar)
+    this.countInStart = this.gridStart - COUNTIN_BEATS * beat
+    if (this.countInStart < now) {
+      // Bar boundary landed inside the lead-up; push to the next one so the
+      // full count-in is still audible.
+      this.gridStart += this.secondsPerBar
+      this.countInStart = this.gridStart - COUNTIN_BEATS * beat
+    }
     this.recordingStopTime = this.gridStart + this.secondsPerBar * this.recordingBarTotal
     this.recording = true
 
     this.timer = this.setIntervalFn(() => this.tick(), TICK_MS)
     this.emit()
+    return { gridStart: this.gridStart, countInStart: this.countInStart }
   }
 
   capture(on: boolean, note: number, velocity = 1, preset: Preset): void {
@@ -136,15 +151,21 @@ export class Looper {
       this.timer.clear()
       this.timer = null
     }
+    this.emit()
   }
 
   private snapshot(): LoopStateChanged {
+    const now = this.engine.getCurrentTime()
+    const inCountIn = this.recording && now < this.gridStart
+    const beat = this.secondsPerBar / BEATS_PER_BAR
     return {
       layers: this.layers.length,
       recording: this.recording,
-      recordingBar: this.recording
+      recordingBar: this.recording && !inCountIn
         ? Math.min(this.recordingBarElapsed + 1, this.recordingBarTotal)
         : null,
+      countingIn: inCountIn,
+      countInBeats: inCountIn ? Math.max(1, Math.ceil((this.gridStart - now) / beat) - 1) : null,
     }
   }
 
@@ -165,10 +186,9 @@ export class Looper {
     const layer: LoopLayer = { id, events, duration, barCount: this.recordingBarTotal }
     this.layers.push(layer)
     this.layerGridStart.set(id, this.gridStart)
-    // Start the first playback cycle on the next bar boundary so the layer
-    // enters in sync with whatever is already looping.
-    const cycleStart = this.alignUp(this.gridStart + duration, this.secondsPerBar)
-    this.layerCursor.set(id, cycleStart)
+    // The first playback cycle starts where the recording ended, so the loop
+    // picks up seamlessly the moment the take completes.
+    this.layerCursor.set(id, this.gridStart + duration)
 
     this.recording = false
     this.buffer = []
@@ -197,28 +217,33 @@ export class Looper {
 
     for (const layer of this.layers) {
       const gridStart = this.layerGridStart.get(layer.id)
-      const cursor = this.layerCursor.get(layer.id)
+      let cursor = this.layerCursor.get(layer.id)
       if (gridStart === undefined || cursor === undefined) continue
 
-      // Schedule every cycle whose start still fits inside the lookahead window.
-      let next = cursor
-      while (next < now + LOOKAHEAD_SECONDS && next >= now - 0.02) {
+      // A long stall (tab throttling) left the cursor far behind: snap it to the
+      // next upcoming cycle start on this layer's own grid instead of firing a
+      // wall of stale notes. A cursor only a few ms in the past (25ms tick
+      // granularity) is fine: it fires now and WebAudio clamps the times, so the
+      // loop resumes on its original grid.
+      if (cursor < now - LOOKAHEAD_SECONDS) {
+        cursor = gridStart + Math.max(0, Math.ceil((now - gridStart) / layer.duration)) * layer.duration
+      }
+
+      // Schedule every cycle whose start lands inside the lookahead window. The
+      // cursor always advances, so playback stays live even when the recording
+      // window ends a few ms after the scheduler's tick.
+      while (cursor < now + LOOKAHEAD_SECONDS) {
         for (const e of layer.events) {
-          const at = next + e.time
+          const at = cursor + e.time
           if (e.on) {
             this.engine.noteOnAt(e.note + LOOP_OFFSET, e.velocity, e.preset, at)
           } else {
             this.engine.noteOffAt(e.note + LOOP_OFFSET, at)
           }
         }
-        next += layer.duration
+        cursor += layer.duration
       }
-      this.layerCursor.set(layer.id, next)
-
-      // If the cursor fell behind (long stall), snap back to the current bar.
-      if (next < now - LOOKAHEAD_SECONDS) {
-        this.layerCursor.set(layer.id, this.alignUp(now, this.secondsPerBar))
-      }
+      this.layerCursor.set(layer.id, cursor)
     }
   }
 }

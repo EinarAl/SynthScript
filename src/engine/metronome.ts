@@ -44,11 +44,16 @@ export class Metronome {
   }
 
   start(bpm: number): void {
+    this.startAt(bpm, this.engine.getCurrentTime() + 0.05)
+  }
+
+  // Start the click track with the first click landing at an explicit absolute
+  // time. Used to align count-in clicks with the looper's recording grid.
+  startAt(bpm: number, firstClickAt: number): void {
     this.stop()
     this.bpm = bpm
     this.beatCount = 0
-    // Kick off just after the current time so a start feels immediate.
-    this.nextBeatTime = this.engine.getCurrentTime() + 0.05
+    this.nextBeatTime = firstClickAt
     this.stopped = false
     this.timer = this.setIntervalFn(() => this.tick(), TICK_MS)
   }

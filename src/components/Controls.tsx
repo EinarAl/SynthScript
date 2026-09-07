@@ -5,6 +5,8 @@ interface LoopState {
   layers: number
   recording: boolean
   recordingBar: number | null
+  countingIn: boolean
+  countInBeats: number | null
 }
 
 interface ControlsProps {
@@ -121,7 +123,7 @@ export default function Controls({
                 Cancel
               </button>
               <span className="loop-status">
-                Recording bar {loopState.recordingBar}
+                {loopState.countingIn ? `Get ready... ${loopState.countInBeats ?? 3}` : `Recording bar ${loopState.recordingBar}`}
               </span>
             </>
           ) : (

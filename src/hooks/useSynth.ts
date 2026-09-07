@@ -107,12 +107,13 @@ export function useSynth() {
   const startLoopRecording = useCallback((barCount: number) => {
     engineRef.current?.resume()
     const at = engineRef.current!.getCurrentTime()
-    looperRef.current?.startRecording(bpmRef.current, barCount, at)
-    if (!metronomeOn) {
-      metronomeRef.current?.start(bpmRef.current)
-      setMetronomeOn(true)
-    }
-  }, [metronomeOn])
+    const { countInStart } = looperRef.current?.startRecording(bpmRef.current, barCount, at) ?? { countInStart: 0 }
+    // Kick the click track into alignment so the count-in beats land exactly
+    // before the recording window, regardless of the metronome's prior phase.
+    metronomeRef.current?.stop()
+    metronomeRef.current?.startAt(bpmRef.current, countInStart)
+    setMetronomeOn(true)
+  }, [])
 
   const stopLoop = useCallback(() => {
     looperRef.current?.stop()
