@@ -121,6 +121,18 @@ export function useSynth() {
     setMetronomeOn(false)
   }, [])
 
+  const pauseLoop = useCallback(() => {
+    looperRef.current?.pause()
+  }, [])
+
+  const resumeLoop = useCallback(() => {
+    looperRef.current?.resume()
+  }, [])
+
+  const setLoopLayerMuted = useCallback((id: number, muted: boolean) => {
+    looperRef.current?.setLoopLayerMuted(id, muted)
+  }, [])
+
   const cancelRecording = useCallback(() => {
     looperRef.current?.cancelRecording()
     metronomeRef.current?.stop()
@@ -144,6 +156,9 @@ export function useSynth() {
     setTempo,
     startLoopRecording,
     stopLoop,
+    pauseLoop,
+    resumeLoop,
+    setLoopLayerMuted,
     cancelRecording,
   }
 }
@@ -163,6 +178,9 @@ export function useKeyboardInput(opts: {
   onNoteOffRef.current = onNoteOff
   const onOctaveShiftRef = useRef(onOctaveShift)
   onOctaveShiftRef.current = onOctaveShift
+  // Physical key -> the MIDI note it was pressed at. Releasing after an octave
+  // shift must stop the original note, not one re-derived under the new range.
+  const heldKeys = useRef(new Map<string, number>())
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -176,11 +194,15 @@ export function useKeyboardInput(opts: {
       }
       if (e.repeat) return
       const midi = keyToMidi(baseCRef.current, e.key)
-      if (midi !== null) onNoteOnRef.current(midi)
+      if (midi !== null) {
+        heldKeys.current.set(e.key, midi)
+        onNoteOnRef.current(midi)
+      }
     }
     const up = (e: KeyboardEvent) => {
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') return
-      const midi = keyToMidi(baseCRef.current, e.key)
+      const midi = heldKeys.current.get(e.key) ?? keyToMidi(baseCRef.current, e.key)
+      heldKeys.current.delete(e.key)
       if (midi !== null) onNoteOffRef.current(midi)
     }
     window.addEventListener('keydown', down)

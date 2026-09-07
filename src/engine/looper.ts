@@ -16,6 +16,8 @@ export interface LoopEvent {
   velocity: number
   preset: Preset
   time: number // seconds, relative to this layer's gridStart
+  held?: boolean // true when this strike is never released: it sustains across
+  // the boundary as one continuous voice instead of re-attacking every cycle
 }
 
 export interface LoopLayer {
@@ -23,19 +25,23 @@ export interface LoopLayer {
   events: LoopEvent[]
   duration: number // seconds, one full cycle
   barCount: number
+  muted: boolean
 }
 
 export interface LoopStateChanged {
   layers: number
+  paused: boolean
   recording: boolean
   recordingBar: number | null
   countingIn: boolean
   countInBeats: number | null
+  layerStates: Array<{ id: number; muted: boolean }>
 }
 
 const LOOKAHEAD_SECONDS = 0.25
 const TICK_MS = 25
-const LOOP_OFFSET = 128 // voice-key separation only; audible pitch stays unchanged
+const LOOP_KEY_BASE = 128 // loop voice keys live at or above this, clear of live notes
+const LAYER_KEY_STRIDE = 128 // separation between layers so muting one never steals another's voice
 const BEATS_PER_BAR = 4
 const COUNTIN_BEATS = 3 // warning clicks heard before recording begins
 
@@ -62,6 +68,11 @@ export class Looper {
   private activeRecordingNotes = new Set<number>()
   private listeners = new Set<(state: LoopStateChanged) => void>()
   private stopped = false
+  private paused = false
+  // layer.id -> indices of held events already started this engagement. Held
+  // notes ring across every barline, so each one is only ever started once;
+  // reset on stop/pause/unmute so a fresh pass restarts them.
+  private sustainedPlayed = new Map<number, Set<number>>()
 
   constructor(deps: LooperDeps) {
     this.engine = deps.engine
@@ -76,7 +87,15 @@ export class Looper {
   }
 
   initialState(): LoopStateChanged {
-    return { layers: 0, recording: false, recordingBar: null, countingIn: false, countInBeats: null }
+    return {
+      layers: 0,
+      paused: false,
+      recording: false,
+      recordingBar: null,
+      countingIn: false,
+      countInBeats: null,
+      layerStates: [],
+    }
   }
 
   isRecording(): boolean {
@@ -136,10 +155,65 @@ export class Looper {
   stop(): void {
     this.cancelRecording()
     this.stopped = true
+    this.paused = false
     this.engine.allNotesOff()
     this.layers = []
     this.layerGridStart.clear()
     this.layerCursor.clear()
+    this.sustainedPlayed.clear()
+    this.emit()
+  }
+
+  // Pause the whole loop playback without touching live notes still held on
+  // the keybed. Loop voices are released; on resume each layer snaps to its
+  // next downbeat so the grid stays intact.
+  pause(): void {
+    if (this.recording || this.paused) return
+    this.paused = true
+    this.engine.releaseLoopVoices()
+    this.emit()
+  }
+
+  resume(): void {
+    if (!this.paused) return
+    this.paused = false
+    const now = this.engine.getCurrentTime()
+    for (const layer of this.layers) {
+      const gridStart = this.layerGridStart.get(layer.id)
+      if (gridStart === undefined) continue
+      this.layerCursor.set(
+        layer.id,
+        gridStart + Math.max(0, Math.ceil((now - gridStart) / layer.duration)) * layer.duration,
+      )
+      // Fresh engagement: held notes re-ring once from the resume point.
+      this.sustainedPlayed.set(layer.id, new Set())
+    }
+    this.emit()
+  }
+
+  // Mute one layer on its own: its voices stop immediately while every other
+  // layer keeps playing. Unmuting snaps that layer to the next downbeat.
+  setLoopLayerMuted(id: number, muted: boolean): void {
+    const layer = this.layers.find((l) => l.id === id)
+    if (!layer || layer.muted === muted) return
+    layer.muted = muted
+    if (muted) {
+      this.engine.releaseNotesInRange(
+        LOOP_KEY_BASE + id * LAYER_KEY_STRIDE,
+        LOOP_KEY_BASE + id * LAYER_KEY_STRIDE + 127,
+      )
+    } else {
+      const gridStart = this.layerGridStart.get(id)
+      if (gridStart !== undefined) {
+        const now = this.engine.getCurrentTime()
+        this.layerCursor.set(
+          id,
+          gridStart + Math.max(0, Math.ceil((now - gridStart) / layer.duration)) * layer.duration,
+        )
+      }
+      // Fresh engagement from the unmute point.
+      this.sustainedPlayed.set(id, new Set())
+    }
     this.emit()
   }
 
@@ -160,12 +234,14 @@ export class Looper {
     const beat = this.secondsPerBar / BEATS_PER_BAR
     return {
       layers: this.layers.length,
+      paused: this.paused,
       recording: this.recording,
       recordingBar: this.recording && !inCountIn
         ? Math.min(this.recordingBarElapsed + 1, this.recordingBarTotal)
         : null,
       countingIn: inCountIn,
       countInBeats: inCountIn ? Math.max(1, Math.ceil((this.gridStart - now) / beat) - 1) : null,
+      layerStates: this.layers.map((l) => ({ id: l.id, muted: l.muted })),
     }
   }
 
@@ -179,40 +255,27 @@ export class Looper {
     const id = this.nextLayerId++
 
     // Bring the take's note events into the cycle window, walking them in time
-    // order. Any note still held when the window closed gets a release clamped
-    // to the end of the cycle: a sustained chord loops as a sustained chord
-    // instead of stacking an unreleased drone on every pass.
+    // order. A note still held when the window closes is left down: it becomes
+    // a held strike that sustains across the boundary as one continuous voice,
+    // so the loop seams silently instead of hard-cutting and re-attacking.
     const sorted = [...this.buffer].sort((a, b) => a.time - b.time)
     const events: LoopEvent[] = []
-    const held = new Set<number>()
-
     for (const e of sorted) {
-      if (e.time >= duration) {
-        // Releases past the window boundary are handled by the held-note sweep
-        // below so the loop never drops a note-off and rings forever.
-        continue
-      }
-      if (e.on) {
-        held.add(e.note)
-      } else {
-        held.delete(e.note)
-      }
+      if (e.time >= duration) continue
       events.push(e)
     }
-    for (const note of held) {
-      const last = [...events].reverse().find((e) => e.note === note)
-      events.push({
-        on: false,
-        note,
-        velocity: last?.velocity ?? 1,
-        preset: last?.preset ?? this.layers[0]?.events[0]?.preset ?? sorted[0]?.preset,
-        time: duration,
-      })
+    for (let i = 0; i < events.length; i++) {
+      const e = events[i]
+      if (!e.on) continue
+      // Held = no later release event for this same strike. Released notes keep
+      // their attack/decay and re-trigger every cycle; held ones ring once.
+      const released = events.some((o, j) => j > i && !o.on && o.note === e.note)
+      e.held = !released
     }
-    events.sort((a, b) => a.time - b.time)
 
-    const layer: LoopLayer = { id, events, duration, barCount: this.recordingBarTotal }
+    const layer: LoopLayer = { id, events, duration, barCount: this.recordingBarTotal, muted: false }
     this.layers.push(layer)
+    this.sustainedPlayed.set(id, new Set())
     this.layerGridStart.set(id, this.gridStart)
     // The first playback cycle starts where the recording ended, so the loop
     // picks up seamlessly the moment the take completes.
@@ -243,7 +306,11 @@ export class Looper {
       }
     }
 
+    // Paused layers are not scheduled; live keybed notes stay untouched.
+    if (this.paused) return
+
     for (const layer of this.layers) {
+      if (layer.muted) continue
       const gridStart = this.layerGridStart.get(layer.id)
       let cursor = this.layerCursor.get(layer.id)
       if (gridStart === undefined || cursor === undefined) continue
@@ -261,12 +328,23 @@ export class Looper {
       // cursor always advances, so playback stays live even when the recording
       // window ends a few ms after the scheduler's tick.
       while (cursor < now + LOOKAHEAD_SECONDS) {
-        for (const e of layer.events) {
+        const voiceBase = LOOP_KEY_BASE + layer.id * LAYER_KEY_STRIDE
+        for (let i = 0; i < layer.events.length; i++) {
+          const e = layer.events[i]
           const at = cursor + e.time
+          const key = voiceBase + e.note
           if (e.on) {
-            this.engine.noteOnAt(e.note + LOOP_OFFSET, e.velocity, e.preset, at)
+            // Held strikes start once per engagement and then ring across every
+            // boundary; their voice is released by stop/pause/mute, not by a
+            // note-off. Everything else re-triggers on each cycle as recorded.
+            if (e.held) {
+              const played = this.sustainedPlayed.get(layer.id)
+              if (played && played.has(i)) continue
+              played?.add(i)
+            }
+            this.engine.noteOnAt(e.note, e.velocity, e.preset, at, key)
           } else {
-            this.engine.noteOffAt(e.note + LOOP_OFFSET, at)
+            this.engine.noteOffAt(key, at)
           }
         }
         cursor += layer.duration

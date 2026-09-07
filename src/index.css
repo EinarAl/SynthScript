@@ -254,6 +254,35 @@ input[type="range"] {
   animation: transport-pulse 0.8s ease-in-out infinite;
 }
 
+.transport-btn.paused {
+  background: #b8862d;
+  border-color: #b8862d;
+  color: #fff;
+}
+
+.layer-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.layer-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #333;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.layer-chip.muted {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
 @keyframes transport-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }

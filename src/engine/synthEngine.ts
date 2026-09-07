@@ -8,9 +8,11 @@ interface Voice {
   gain: GainNode
   filter: BiquadFilterNode
   preset: Preset
+  releasing: boolean
+  ended: boolean
 }
 
-const LOOP_KEY_OFFSET = 128 // keeps loop voices out of the live-voice range
+const LOOP_KEY_BASE = 128 // loop voice keys live at or above this, clear of live notes
 
 export class SynthEngine {
   private ctx: AudioContext | null = null
@@ -93,24 +95,29 @@ export class SynthEngine {
 
   noteOn(noteNumber: number, velocity: number = 1): void {
     const ctx = this.ensureContext()
-    this.startVoice(noteNumber, velocity, this.preset, ctx.currentTime)
+    this.startVoice(noteNumber, noteNumber, velocity, this.preset, ctx.currentTime)
   }
 
   // Render a voice with an explicit preset starting at an absolute context time.
   // Used by the loop scheduler so recorded layers keep the voice they were
-  // captured with regardless of the currently selected preset.
-  noteOnAt(noteNumber: number, velocity: number, preset: Preset, at: number): void {
+  // captured with regardless of the currently selected preset. The audible
+  // pitch is the raw `note`; `voiceKey` is the key the voice is tracked under,
+  // which lets the looper lay several layers out on distinct keys while they
+  // all sound at the recorded pitch.
+  noteOnAt(note: number, velocity: number, preset: Preset, at: number, voiceKey?: number): void {
     this.ensureContext()
-    this.startVoice(noteNumber, velocity, preset, at)
+    this.startVoice(voiceKey ?? note, note, velocity, preset, at)
   }
 
-  private startVoice(noteNumber: number, velocity: number, p: Preset, at: number): void {
+  private startVoice(key: number, midiNote: number, velocity: number, p: Preset, at: number): void {
     const ctx = this.ensureContext()
 
-    // Loop voices arrive keyed at note+128 so they never collide with a live
-    // voice on the same key. The real MIDI note is stored below the offset so
-    // sample banks resolve and oscillator frequencies stay in the audible range.
-    const midiNote = noteNumber >= LOOP_KEY_OFFSET ? noteNumber - LOOP_KEY_OFFSET : noteNumber
+    // A re-strike on a key already ringing retriggers the note: release the
+    // stale voice first so its buffer/oscillator never leak into the mix.
+    const stale = this.voices.get(key)
+    if (stale && !stale.releasing && !stale.ended) {
+      this.releaseVoice(key, at)
+    }
 
     const env = ctx.createGain()
     const filter = ctx.createBiquadFilter()
@@ -170,7 +177,7 @@ export class SynthEngine {
       }
     }
 
-    this.voices.set(noteNumber, { kind, sources, gain: env, filter, preset: p })
+    this.voices.set(key, { kind, sources, gain: env, filter, preset: p, releasing: false, ended: false })
   }
 
   noteOff(noteNumber: number): void {
@@ -185,10 +192,11 @@ export class SynthEngine {
 
   private releaseVoice(noteNumber: number, at: number): void {
     const voice = this.voices.get(noteNumber)
-    if (!voice || !this.ctx) return
+    if (!voice || !this.ctx || voice.releasing || voice.ended) return
     const now = at
     const p = voice.preset
 
+    voice.releasing = true
     voice.gain.gain.cancelScheduledValues(now)
     voice.gain.gain.setValueAtTime(Math.max(voice.gain.gain.value, 0.0001), now)
     voice.gain.gain.exponentialRampToValueAtTime(0.0001, now + Math.max(p.release, 0.005))
@@ -198,6 +206,9 @@ export class SynthEngine {
     }
 
     const cleanup = () => {
+      // Only claim the map slot if this voice still owns it, so a retrigger
+      // that already parked a fresh voice under the same key is not disturbed.
+      if (this.voices.get(noteNumber) === voice) this.voices.delete(noteNumber)
       try { voice.gain.disconnect() } catch {}
       try { voice.filter.disconnect() } catch {}
     }
@@ -207,10 +218,47 @@ export class SynthEngine {
         src.onended = cleanup
       })
     } else {
-      setTimeout(cleanup, (Math.max(p.release, 0.005) + 0.06) * 1000)
+      // Sample buffers end on their own too (non-looping strikes), so the
+      // natural end frees the voice without waiting for an explicit release.
+      voice.sources.forEach((src) => {
+        src.onended = () => {
+          voice.ended = true
+          cleanup()
+        }
+      })
+      setTimeout(() => {
+        voice.ended = true
+        cleanup()
+      }, (Math.max(p.release, 0.005) + 0.06) * 1000)
     }
 
     this.voices.delete(noteNumber)
+  }
+
+  // Ringing = the voice is still producing audio, not mid-release and not
+  // already decayed on its own. Used by the looper to decide whether a held
+  // note still needs its voice released or its source re-triggered.
+  isVoiceRinging(noteNumber: number): boolean {
+    const voice = this.voices.get(noteNumber)
+    return !!voice && !voice.releasing && !voice.ended
+  }
+
+  // Release every loop voice (key at or above LOOP_KEY_BASE) without touching
+  // live notes held on the keybed. Used by global pause and by layer mute.
+  releaseLoopVoices(): void {
+    const now = this.ctx ? this.ctx.currentTime : 0
+    for (const key of [...this.voices.keys()]) {
+      if (key >= LOOP_KEY_BASE) this.releaseVoice(key, now)
+    }
+  }
+
+  // Release only the voices parked on keys inside [from, to]. Lets one layer be
+  // muted while its neighbours keep ringing.
+  releaseNotesInRange(from: number, to: number): void {
+    const now = this.ctx ? this.ctx.currentTime : 0
+    for (const key of [...this.voices.keys()]) {
+      if (key >= from && key <= to) this.releaseVoice(key, now)
+    }
   }
 
   allNotesOff(): void {

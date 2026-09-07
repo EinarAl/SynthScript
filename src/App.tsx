@@ -8,7 +8,7 @@ import { validatePreset, type Preset } from './engine/presets'
 const DEFAULT_BASE_C = 48 // C3
 
 export default function App() {
-  const { activeNotes, noteOn, noteOff, allNotesOff, preset, setPreset, setMasterGain, presets, samplesLoading, loopState, metronomeOn, bpm, toggleMetronome, setTempo, startLoopRecording, stopLoop, cancelRecording } = useSynth()
+  const { activeNotes, noteOn, noteOff, allNotesOff, preset, setPreset, setMasterGain, presets, samplesLoading, loopState, metronomeOn, bpm, toggleMetronome, setTempo, startLoopRecording, stopLoop, pauseLoop, resumeLoop, setLoopLayerMuted, cancelRecording } = useSynth()
   const [baseC, setBaseC] = useState(DEFAULT_BASE_C)
   const [masterGain, setMasterGainLocal] = useState(0.8)
   const [audioBlocked, setAudioBlocked] = useState(false)
@@ -31,8 +31,10 @@ export default function App() {
     }
   }, [selectPreset])
 
+  // Octave shifts do NOT cut held notes: a key pressed in one octave keeps
+  // ringing until it is released, even if the range moved beneath it. Only
+  // switching voices calls allNotesOff, so a drone doesn't survive a voice swap.
   const onOctaveChange = (o: number) => {
-    allNotesOff()
     setBaseC(12 + o * 12)
   }
 
@@ -83,6 +85,9 @@ export default function App() {
         onTempoChange={setTempo}
         onRecord={startLoopRecording}
         onStopLoop={stopLoop}
+        onPauseLoop={pauseLoop}
+        onResumeLoop={resumeLoop}
+        onSetLayerMuted={setLoopLayerMuted}
         onCancelRecording={cancelRecording}
       />
       <PresetPanel current={preset} onImport={selectPreset} />

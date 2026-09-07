@@ -243,28 +243,66 @@ describe('scheduled voices (noteOnAt / noteOffAt)', () => {
     expect(ctx.createdOscs[0].stop).toHaveBeenCalledWith(6 + 0.4 + 0.05)
   })
 
-  it('keeps loop voices (offset+128) distinct from live voices', () => {
+  it('keeps loop voices (voiceKey) distinct from live voices', () => {
     const { engine, ctx } = createEngine('clean')
     engine.noteOn(60)
-    engine.noteOnAt(60 + 128, 1, getPreset('dusk'), 0)
-    // both are separate oscillator starts; live noteOff for 60 must not kill 188
+    engine.noteOnAt(60, 1, getPreset('dusk'), 0, 316)
+    // both are separate oscillator starts; live noteOff for 60 must not kill 316
     expect(ctx.createdOscs).toHaveLength(2)
     engine.noteOff(60)
     expect(ctx.createdOscs[0].stop).toHaveBeenCalled()
     expect(ctx.createdOscs[1].stop).not.toHaveBeenCalled()
-    engine.noteOffAt(60 + 128, 0)
-    expect(ctx.createdOscs[1].stop).toHaveBeenCalled()
   })
 
-  it('plays loop voices at the same audible pitch as the live note', () => {
+  it('sounds the raw note pitch regardless of the voice key', () => {
     const { engine, ctx } = createEngine('clean')
     engine.noteOn(60)
-    engine.noteOnAt(60 + 128, 1, getPreset('clean'), 0)
-    // key separation at +128 must NOT transpose the pitch into the inaudible
-    // ultrasonic range; the loop voice sounds like the note that was recorded
+    engine.noteOnAt(60, 1, getPreset('clean'), 0, 316)
     expect(ctx.createdOscs).toHaveLength(2)
+    // key separation must NOT transpose pitch into the inaudible range; a loop
+    // voice sounds like the note that was recorded
     const midi60Hz = ctx.createdOscs[0].frequency.value
     expect(ctx.createdOscs[1].frequency.value).toBe(midi60Hz)
+  })
+
+  it('a re-strike on the same voice key force-releases the stale voice', () => {
+    const { engine, ctx } = createEngine('clean')
+    engine.noteOnAt(60, 1, getPreset('clean'), 4, 316)
+    expect(ctx.createdOscs).toHaveLength(1)
+    // second strike on the same key before release: stale voice is released
+    engine.noteOnAt(60, 1, getPreset('clean'), 8, 316)
+    expect(ctx.createdOscs).toHaveLength(2)
+    expect(ctx.createdOscs[0].stop).toHaveBeenCalled()
+  })
+
+  it('isVoiceRinging reflects a live non-releasing voice', () => {
+    const { engine } = createEngine('clean')
+    engine.noteOnAt(60, 1, getPreset('clean'), 0, 316)
+    expect(engine.isVoiceRinging(316)).toBe(true)
+    engine.releaseNotesInRange(300, 330)
+    expect(engine.isVoiceRinging(316)).toBe(false)
+  })
+
+  it('releaseLoopVoices stops only keys at or above the loop base and never live notes', () => {
+    const { engine, ctx } = createEngine('clean')
+    engine.noteOn(60) // live
+    engine.noteOnAt(60, 1, getPreset('clean'), 0, 316) // loop
+    engine.noteOnAt(62, 1, getPreset('clean'), 0, 318) // loop
+    engine.releaseLoopVoices()
+    // live note untouched
+    expect(ctx.createdOscs[0].stop).not.toHaveBeenCalled()
+    // both loop voices released
+    expect(ctx.createdOscs[1].stop).toHaveBeenCalled()
+    expect(ctx.createdOscs[2].stop).toHaveBeenCalled()
+  })
+
+  it('releaseNotesInRange releases only keys inside the range', () => {
+    const { engine, ctx } = createEngine('clean')
+    engine.noteOnAt(60, 1, getPreset('clean'), 0, 256)
+    engine.noteOnAt(60, 1, getPreset('clean'), 0, 384)
+    engine.releaseNotesInRange(200, 300)
+    expect(ctx.createdOscs[0].stop).toHaveBeenCalled() // 256 in range
+    expect(ctx.createdOscs[1].stop).not.toHaveBeenCalled() // 384 out of range
   })
 
   it('click emits an oscillator at the requested time', () => {

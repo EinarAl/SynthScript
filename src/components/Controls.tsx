@@ -3,10 +3,12 @@ import type { Preset } from '../engine/presets'
 
 interface LoopState {
   layers: number
+  paused: boolean
   recording: boolean
   recordingBar: number | null
   countingIn: boolean
   countInBeats: number | null
+  layerStates: Array<{ id: number; muted: boolean }>
 }
 
 interface ControlsProps {
@@ -26,6 +28,9 @@ interface ControlsProps {
   onTempoChange: (v: number) => void
   onRecord: (bars: number) => void
   onStopLoop: () => void
+  onPauseLoop: () => void
+  onResumeLoop: () => void
+  onSetLayerMuted: (id: number, muted: boolean) => void
   onCancelRecording: () => void
 }
 
@@ -48,6 +53,9 @@ export default function Controls({
   onTempoChange,
   onRecord,
   onStopLoop,
+  onPauseLoop,
+  onResumeLoop,
+  onSetLayerMuted,
   onCancelRecording,
 }: ControlsProps) {
   const [selectedBars, setSelectedBars] = useState(4)
@@ -145,9 +153,17 @@ export default function Controls({
                 ))}
               </select>
               {loopState.layers > 0 && (
-                <button className="transport-btn" onClick={onStopLoop}>
-                  Stop
-                </button>
+                <>
+                  <button
+                    className={`transport-btn ${loopState.paused ? 'paused' : ''}`}
+                    onClick={loopState.paused ? onResumeLoop : onPauseLoop}
+                  >
+                    {loopState.paused ? 'Resume' : 'Pause'}
+                  </button>
+                  <button className="transport-btn" onClick={onStopLoop}>
+                    Stop
+                  </button>
+                </>
               )}
             </>
           )}
@@ -155,6 +171,20 @@ export default function Controls({
             {loopState.layers > 0 ? `${loopState.layers} layer${loopState.layers > 1 ? 's' : ''}` : 'No loop'}
           </span>
         </div>
+        {loopState.layerStates.length > 0 && (
+          <div className="layer-row">
+            {loopState.layerStates.map((layer) => (
+              <button
+                key={layer.id}
+                className={`layer-chip ${layer.muted ? 'muted' : ''}`}
+                onClick={() => onSetLayerMuted(layer.id, !layer.muted)}
+                title={layer.muted ? 'Unmute this layer' : 'Mute this layer'}
+              >
+                Layer {layer.id} {layer.muted ? '· Muted' : ''}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
