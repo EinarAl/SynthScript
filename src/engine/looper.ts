@@ -136,8 +136,10 @@ export class Looper {
   capture(on: boolean, note: number, velocity = 1, preset: Preset): void {
     if (!this.recording) return
     const now = this.engine.getCurrentTime()
-    if (now < this.gridStart) return
     const time = now - this.gridStart
+    // Notes struck before the window opens (during the count-in) are kept with
+    // a negative time and shifted to the downbeat at finalize, so a take that
+    // starts early keeps every note instead of silently dropping its opening.
     this.buffer.push({ on, note, velocity, preset, time })
     if (on) {
       this.activeRecordingNotes.add(note)
@@ -244,18 +246,24 @@ export class Looper {
     const id = this.nextLayerId++
 
     // Bring the take's note events into the cycle window, walking them in time
-    // order. Any note still held when the window closed gets a release clamped
-    // to the end of the cycle: a sustained chord loops as a sustained chord
-    // instead of stacking an unreleased drone on every pass. This matches how
-    // DAW and open-source MIDI loopers handle the boundary: each cycle replays
-    // the exact captured note events, and a note caught crossing the loop end
-    // is cut there and re-articulated on the next pass.
+    // order. If the take began before the window opened, the whole timeline is
+    // shifted so the first struck note lands on the downbeat: the loop repeats
+    // exactly what was played, including the count-in opening. Any note still
+    // held when the window closed gets a release clamped to the end of the
+    // cycle: a sustained chord loops as a sustained chord instead of stacking
+    // an unreleased drone on every pass. This all matches how DAW and
+    // open-source MIDI loopers handle the boundary: each cycle replays the
+    // exact captured note events, and a note caught crossing the loop end is
+    // cut there and re-articulated on the next pass.
     const sorted = [...this.buffer].sort((a, b) => a.time - b.time)
+    const earliest = sorted.length ? Math.min(...sorted.map((e) => e.time)) : 0
+    const shift = Math.min(0, earliest)
     const events: LoopEvent[] = []
     const held = new Set<number>()
 
     for (const e of sorted) {
-      if (e.time >= duration) {
+      const time = e.time - shift
+      if (time >= duration) {
         // Releases past the window boundary are handled by the held-note sweep
         // below so the loop never drops a note-off and rings forever.
         continue
@@ -265,7 +273,7 @@ export class Looper {
       } else {
         held.delete(e.note)
       }
-      events.push(e)
+      events.push({ ...e, time })
     }
     for (const note of held) {
       const last = [...events].reverse().find((e) => e.note === note)

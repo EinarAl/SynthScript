@@ -129,7 +129,7 @@ describe('Looper recording', () => {
 
     h.ctx.currentTime = 0
     lo.startRecording(120, 1, 0) // 60/120 * 4 = 2s per bar; count-in => gridStart = 2
-    // note captured before grid (during count-in) is ignored
+    // a note struck before the grid opens survives and snaps to the downbeat
     lo.capture(true, 60, 1, getPreset('clean'))
     h.ctx.currentTime = 2.1
     lo.capture(true, 60, 1, getPreset('clean'))
@@ -168,6 +168,47 @@ describe('Looper recording', () => {
     // release clamped to the cycle end
     expect(events.filter((e) => !e.on)).toHaveLength(2)
     expect(events.filter((e) => !e.on).every((e) => e.time === 2)).toBe(true)
+  })
+
+  it('shifts the take to the first note struck during the count-in', () => {
+    const h = makeHarness()
+    const lo = new Looper({ engine: h.engine, setInterval: (fn, ms) => h.queue.register(fn, ms) })
+
+    h.ctx.currentTime = 0
+    lo.startRecording(120, 1, 0) // gridStart = 2
+    // melody starts 1s before the window opens and continues past it
+    h.ctx.currentTime = 1.0
+    lo.capture(true, 60, 1, getPreset('clean'))
+    h.ctx.currentTime = 1.4
+    lo.capture(true, 64, 1, getPreset('synth'))
+    h.ctx.currentTime = 1.8
+    lo.capture(false, 64, 1, getPreset('synth'))
+    h.ctx.currentTime = 3.2
+    lo.capture(false, 60, 1, getPreset('clean'))
+    h.ctx.currentTime = 4.01
+    h.queue.runAll()
+
+    // earliest event was at -1.0, so everything shifts +1.0: the first note
+    // lands on the downbeat and the rhythm (0.4 spacing) is preserved
+    const events = (lo as unknown as { layers: Array<{ events: Array<{ on: boolean; note: number; time: number }> }> }).layers[0].events
+    expect(events.find((e) => e.on && e.note === 60)?.time).toBe(0)
+    expect(events.find((e) => e.on && e.note === 64)?.time).toBeCloseTo(0.4, 6)
+    expect(events.find((e) => !e.on && e.note === 64)?.time).toBeCloseTo(0.8, 6)
+  })
+
+  it('handles a take that starts exactly at the boundary', () => {
+    const h = makeHarness()
+    const lo = new Looper({ engine: h.engine, setInterval: (fn, ms) => h.queue.register(fn, ms) })
+
+    h.ctx.currentTime = 0
+    lo.startRecording(120, 1, 0)
+    h.ctx.currentTime = 2.0
+    lo.capture(true, 60, 1, getPreset('clean'))
+    h.ctx.currentTime = 4.01
+    h.queue.runAll()
+
+    const events = (lo as unknown as { layers: Array<{ events: Array<{ on: boolean; time: number }> }> }).layers[0].events
+    expect(events.filter((e) => e.on)[0].time).toBe(0)
   })
 
   it('does not record while a previous loop is playing (no echo)', () => {
