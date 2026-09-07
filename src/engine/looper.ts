@@ -177,11 +177,39 @@ export class Looper {
   private finalizeRecording(): void {
     const duration = this.secondsPerBar * this.recordingBarTotal
     const id = this.nextLayerId++
-    const events = this.buffer
-      // Delay release events that leak past the end of the recorded window so a
-      // held note doesn't ring into the following, unrelated cycle.
-      .filter((e) => e.time < duration)
-      .sort((a, b) => a.time - b.time)
+
+    // Bring the take's note events into the cycle window, walking them in time
+    // order. Any note still held when the window closed gets a release clamped
+    // to the end of the cycle: a sustained chord loops as a sustained chord
+    // instead of stacking an unreleased drone on every pass.
+    const sorted = [...this.buffer].sort((a, b) => a.time - b.time)
+    const events: LoopEvent[] = []
+    const held = new Set<number>()
+
+    for (const e of sorted) {
+      if (e.time >= duration) {
+        // Releases past the window boundary are handled by the held-note sweep
+        // below so the loop never drops a note-off and rings forever.
+        continue
+      }
+      if (e.on) {
+        held.add(e.note)
+      } else {
+        held.delete(e.note)
+      }
+      events.push(e)
+    }
+    for (const note of held) {
+      const last = [...events].reverse().find((e) => e.note === note)
+      events.push({
+        on: false,
+        note,
+        velocity: last?.velocity ?? 1,
+        preset: last?.preset ?? this.layers[0]?.events[0]?.preset ?? sorted[0]?.preset,
+        time: duration,
+      })
+    }
+    events.sort((a, b) => a.time - b.time)
 
     const layer: LoopLayer = { id, events, duration, barCount: this.recordingBarTotal }
     this.layers.push(layer)

@@ -159,10 +159,15 @@ describe('Looper recording', () => {
     h.ctx.currentTime = 4.01
     h.queue.runAll()
 
-    const events = (lo as unknown as { layers: Array<{ events: Array<{ note: number; preset: { id: string } }> }> }).layers[0].events
-    expect(events).toHaveLength(2)
-    expect(events.find((e) => e.note === 60)?.preset.id).toBe('clean')
-    expect(events.find((e) => e.note === 64)?.preset.id).toBe('synth')
+    const events = (lo as unknown as { layers: Array<{ events: Array<{ on: boolean; note: number; time: number; preset: { id: string } }> }> }).layers[0].events
+    const ons = events.filter((e) => e.on)
+    expect(ons).toHaveLength(2)
+    expect(ons.find((e) => e.note === 60)?.preset.id).toBe('clean')
+    expect(ons.find((e) => e.note === 64)?.preset.id).toBe('synth')
+    // both notes were still held at the end of the window, so each gets a
+    // release clamped to the cycle end
+    expect(events.filter((e) => !e.on)).toHaveLength(2)
+    expect(events.filter((e) => !e.on).every((e) => e.time === 2)).toBe(true)
   })
 
   it('does not record while a previous loop is playing (no echo)', () => {
