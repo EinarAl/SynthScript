@@ -159,15 +159,15 @@ describe('Looper recording', () => {
     h.ctx.currentTime = 4.01
     h.queue.runAll()
 
-    const events = (lo as unknown as { layers: Array<{ events: Array<{ on: boolean; note: number; time: number; preset: { id: string }; held?: boolean }> }> }).layers[0].events
+    const events = (lo as unknown as { layers: Array<{ events: Array<{ on: boolean; note: number; time: number; preset: { id: string } }> }> }).layers[0].events
     const ons = events.filter((e) => e.on)
     expect(ons).toHaveLength(2)
     expect(ons.find((e) => e.note === 60)?.preset.id).toBe('clean')
     expect(ons.find((e) => e.note === 64)?.preset.id).toBe('synth')
-    // Both notes were held through the end of the window, so no release event
-    // is produced: each becomes a held strike that sustains across the boundary.
-    expect(events.filter((e) => !e.on)).toHaveLength(0)
-    expect(ons.every((e) => e.held)).toBe(true)
+    // both notes were still held at the end of the window, so each gets a
+    // release clamped to the cycle end
+    expect(events.filter((e) => !e.on)).toHaveLength(2)
+    expect(events.filter((e) => !e.on).every((e) => e.time === 2)).toBe(true)
   })
 
   it('does not record while a previous loop is playing (no echo)', () => {
@@ -211,7 +211,7 @@ describe('Looper recording', () => {
 
     h.ctx.currentTime = 0
     lo.startRecording(120, 1, 0)
-    // note is released mid-cycle so it re-triggers on every pass (not held)
+    // note is released mid-cycle so it re-triggers on every pass
     h.ctx.currentTime = 2.1
     lo.capture(true, 60, 1, getPreset('clean'))
     h.ctx.currentTime = 2.5
@@ -312,11 +312,11 @@ describe('Looper recording', () => {
     )).toBeGreaterThan(6)
   })
 
-  it('holds a struck-through note as one continuous voice across the boundary', () => {
+  it('holds a note through the window and cuts it off at the loop boundary', () => {
     const h = makeHarness()
     const lo = new Looper({ engine: h.engine, setInterval: (fn, ms) => h.queue.register(fn, ms) })
 
-    // single cycle, note held from 2.1 to the end of the 2s window (4.0)
+    // single cycle, note held from 2.1 through the end of the 2s window (4.0)
     h.ctx.currentTime = 0
     lo.startRecording(120, 1, 0)
     h.ctx.currentTime = 2.1
@@ -324,15 +324,16 @@ describe('Looper recording', () => {
     h.ctx.currentTime = 4.01
     h.queue.runAll()
 
-    const events = (lo as unknown as { layers: Array<{ events: Array<{ on: boolean; held?: boolean }> }> }).layers[0].events
+    // the note is clamped to the cycle end instead of ringing across the
+    // boundary, so every pass re-articulates it fresh
+    const events = (lo as unknown as { layers: Array<{ events: Array<{ on: boolean; time: number }> }> }).layers[0].events
     const ons = events.filter((e) => e.on)
     expect(ons).toHaveLength(1)
-    expect(ons[0].held).toBe(true)
-    // No release event: the note rings across every boundary with no re-attack.
-    expect(events.filter((e) => !e.on)).toHaveLength(0)
+    expect(events.filter((e) => !e.on)).toHaveLength(1)
+    expect(events.filter((e) => !e.on)[0].time).toBe(2)
   })
 
-  it('does not re-strike a sustained note on later cycles', () => {
+  it('re-strikes a boundary-crossing note on later cycles', () => {
     const h = makeHarness()
     const lo = new Looper({ engine: h.engine, setInterval: (fn, ms) => h.queue.register(fn, ms) })
 
@@ -343,15 +344,17 @@ describe('Looper recording', () => {
     h.ctx.currentTime = 4.01
     h.queue.runAll()
 
-    // wind time well past two boundaries: gridStart=2, duration=2 -> boundaries at 6, 8
-    h.ctx.currentTime = 8.5
+    // step ticks through each boundary; the cursor advances one cycle per tick
+    h.ctx.currentTime = 6.1
+    h.queue.runAll()
+    h.ctx.currentTime = 8.1
     h.queue.runAll()
 
-    // the note was started exactly once (in the first cycle at 4.1); every
-    // boundary after that must not spawn another attack
+    // the held-through note is re-articulated every cycle: attacks at 4.1, 6.1, 8.1
     const starts = h.ctx.createdOscs.map((o) => (o.start as ReturnType<typeof vi.fn>).mock.calls[0][0])
-    const notes = starts.filter((t) => Math.abs(t - 4.1) < 0.01)
-    expect(notes).toHaveLength(1)
+    expect(starts.filter((t) => Math.abs(t - 4.1) < 0.01)).toHaveLength(1)
+    expect(starts.filter((t) => Math.abs(t - 6.1) < 0.01)).toHaveLength(1)
+    expect(starts.filter((t) => Math.abs(t - 8.1) < 0.01)).toHaveLength(1)
   })
 
   it('released notes still re-trigger each cycle', () => {
@@ -405,38 +408,6 @@ describe('Looper recording', () => {
       (lo as unknown as { layers: Array<{ id: number }> }).layers[0].id,
     )
     expect(cursor).toBe(8)
-  })
-
-  it('resumes a held note exactly once, not on every subsequent cycle', () => {
-    const h = makeHarness()
-    const lo = new Looper({ engine: h.engine, setInterval: (fn, ms) => h.queue.register(fn, ms) })
-
-    h.ctx.currentTime = 0
-    lo.startRecording(120, 1, 0)
-    h.ctx.currentTime = 2.1
-    lo.capture(true, 60, 1, getPreset('clean'))
-    h.ctx.currentTime = 4.01
-    h.queue.runAll()
-
-    // first attack at the take's end: 4.1
-    expect(h.ctx.createdOscs).toHaveLength(1)
-
-    h.ctx.currentTime = 6.5
-    lo.pause()
-    h.ctx.currentTime = 6.6
-    lo.resume()
-    // resume snaps the cursor to the next downbeat after 6.6 (gridStart=2,
-    // duration=2 -> boundary 8), so the held note rings again at 8.1
-    h.ctx.currentTime = 8.1
-    h.queue.runAll()
-    h.ctx.currentTime = 10.1
-    h.queue.runAll()
-
-    const starts = h.ctx.createdOscs.map((o) => (o.start as ReturnType<typeof vi.fn>).mock.calls[0][0])
-    // exactly one attack came from the resume (8.1); the 10.0 boundary must not
-    // re-attack a still-ringing held note
-    expect(starts.filter((t) => Math.abs(t - 8.1) < 0.01)).toHaveLength(1)
-    expect(starts.filter((t) => Math.abs(t - 10.1) < 0.01)).toHaveLength(0)
   })
 
   it('muting one layer stops only that layer voices', () => {

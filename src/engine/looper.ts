@@ -16,8 +16,6 @@ export interface LoopEvent {
   velocity: number
   preset: Preset
   time: number // seconds, relative to this layer's gridStart
-  held?: boolean // true when this strike is never released: it sustains across
-  // the boundary as one continuous voice instead of re-attacking every cycle
 }
 
 export interface LoopLayer {
@@ -69,10 +67,6 @@ export class Looper {
   private listeners = new Set<(state: LoopStateChanged) => void>()
   private stopped = false
   private paused = false
-  // layer.id -> indices of held events already started this engagement. Held
-  // notes ring across every barline, so each one is only ever started once;
-  // reset on stop/pause/unmute so a fresh pass restarts them.
-  private sustainedPlayed = new Map<number, Set<number>>()
 
   constructor(deps: LooperDeps) {
     this.engine = deps.engine
@@ -160,7 +154,6 @@ export class Looper {
     this.layers = []
     this.layerGridStart.clear()
     this.layerCursor.clear()
-    this.sustainedPlayed.clear()
     this.emit()
   }
 
@@ -185,8 +178,6 @@ export class Looper {
         layer.id,
         gridStart + Math.max(0, Math.ceil((now - gridStart) / layer.duration)) * layer.duration,
       )
-      // Fresh engagement: held notes re-ring once from the resume point.
-      this.sustainedPlayed.set(layer.id, new Set())
     }
     this.emit()
   }
@@ -211,8 +202,6 @@ export class Looper {
           gridStart + Math.max(0, Math.ceil((now - gridStart) / layer.duration)) * layer.duration,
         )
       }
-      // Fresh engagement from the unmute point.
-      this.sustainedPlayed.set(id, new Set())
     }
     this.emit()
   }
@@ -255,27 +244,43 @@ export class Looper {
     const id = this.nextLayerId++
 
     // Bring the take's note events into the cycle window, walking them in time
-    // order. A note still held when the window closes is left down: it becomes
-    // a held strike that sustains across the boundary as one continuous voice,
-    // so the loop seams silently instead of hard-cutting and re-attacking.
+    // order. Any note still held when the window closed gets a release clamped
+    // to the end of the cycle: a sustained chord loops as a sustained chord
+    // instead of stacking an unreleased drone on every pass. This matches how
+    // DAW and open-source MIDI loopers handle the boundary: each cycle replays
+    // the exact captured note events, and a note caught crossing the loop end
+    // is cut there and re-articulated on the next pass.
     const sorted = [...this.buffer].sort((a, b) => a.time - b.time)
     const events: LoopEvent[] = []
+    const held = new Set<number>()
+
     for (const e of sorted) {
-      if (e.time >= duration) continue
+      if (e.time >= duration) {
+        // Releases past the window boundary are handled by the held-note sweep
+        // below so the loop never drops a note-off and rings forever.
+        continue
+      }
+      if (e.on) {
+        held.add(e.note)
+      } else {
+        held.delete(e.note)
+      }
       events.push(e)
     }
-    for (let i = 0; i < events.length; i++) {
-      const e = events[i]
-      if (!e.on) continue
-      // Held = no later release event for this same strike. Released notes keep
-      // their attack/decay and re-trigger every cycle; held ones ring once.
-      const released = events.some((o, j) => j > i && !o.on && o.note === e.note)
-      e.held = !released
+    for (const note of held) {
+      const last = [...events].reverse().find((e) => e.note === note)
+      events.push({
+        on: false,
+        note,
+        velocity: last?.velocity ?? 1,
+        preset: last?.preset ?? this.layers[0]?.events[0]?.preset ?? sorted[0]?.preset,
+        time: duration,
+      })
     }
+    events.sort((a, b) => a.time - b.time)
 
     const layer: LoopLayer = { id, events, duration, barCount: this.recordingBarTotal, muted: false }
     this.layers.push(layer)
-    this.sustainedPlayed.set(id, new Set())
     this.layerGridStart.set(id, this.gridStart)
     // The first playback cycle starts where the recording ended, so the loop
     // picks up seamlessly the moment the take completes.
@@ -334,14 +339,6 @@ export class Looper {
           const at = cursor + e.time
           const key = voiceBase + e.note
           if (e.on) {
-            // Held strikes start once per engagement and then ring across every
-            // boundary; their voice is released by stop/pause/mute, not by a
-            // note-off. Everything else re-triggers on each cycle as recorded.
-            if (e.held) {
-              const played = this.sustainedPlayed.get(layer.id)
-              if (played && played.has(i)) continue
-              played?.add(i)
-            }
             this.engine.noteOnAt(e.note, e.velocity, e.preset, at, key)
           } else {
             this.engine.noteOffAt(key, at)
