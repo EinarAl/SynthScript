@@ -5,6 +5,8 @@ import { keyToMidi } from '../engine/keymap'
 import { Metronome } from '../engine/metronome'
 import { Looper, type LoopStateChanged } from '../engine/looper'
 
+const PITCH_BEND_CENTS = 200
+
 export function useSynth() {
   const engineRef = useRef<SynthEngine | null>(null)
   if (engineRef.current === null) {
@@ -77,6 +79,14 @@ export function useSynth() {
     engineRef.current?.setMasterGain(v)
   }, [])
 
+  const setPitchBend = useCallback((cents: number) => {
+    engineRef.current?.setPitchBend(cents)
+  }, [])
+
+  const setMod = useCallback((value: number) => {
+    engineRef.current?.setMod(value)
+  }, [])
+
   const allNotesOff = useCallback(() => {
     engineRef.current?.allNotesOff()
     const next = new Set<number>()
@@ -147,6 +157,8 @@ export function useSynth() {
     preset,
     setPreset,
     setMasterGain,
+    setPitchBend,
+    setMod,
     presets: [getPreset('clean'), getPreset('piano'), getPreset('synth'), getPreset('chorus'), getPreset('cumbia'), getPreset('harpsichord'), getPreset('organ'), getPreset('dusk')],
     samplesLoading,
     loopState,
@@ -167,28 +179,58 @@ export function useKeyboardInput(opts: {
   baseC: number
   onNoteOn: (n: number) => void
   onNoteOff: (n: number) => void
-  onOctaveShift?: (dir: 1 | -1) => void
+  onPitchBend?: (cents: number) => void
+  onMod?: (value: number) => void
 }) {
-  const { baseC, onNoteOn, onNoteOff, onOctaveShift } = opts
+  const { baseC, onNoteOn, onNoteOff, onPitchBend, onMod } = opts
   const baseCRef = useRef(baseC)
   baseCRef.current = baseC
   const onNoteOnRef = useRef(onNoteOn)
   onNoteOnRef.current = onNoteOn
   const onNoteOffRef = useRef(onNoteOff)
   onNoteOffRef.current = onNoteOff
-  const onOctaveShiftRef = useRef(onOctaveShift)
-  onOctaveShiftRef.current = onOctaveShift
-  // Physical key -> the MIDI note it was pressed at. Releasing after an octave
-  // shift must stop the original note, not one re-derived under the new range.
+  const onPitchBendRef = useRef(onPitchBend)
+  onPitchBendRef.current = onPitchBend
+  const onModRef = useRef(onMod)
+  onModRef.current = onMod
+  // Physical key -> the MIDI note it was pressed at. Releasing must stop the
+  // original note, not one re-derived under a different range.
   const heldKeys = useRef(new Map<string, number>())
 
   useEffect(() => {
+    const bendHeld = { left: false, right: false }
+    const wheelHeld = { up: false, down: false }
+    const wheelValue = { current: 0 }
+    let wheelTimer: number | null = null
+
+    const pushMod = () => {
+      const dir = wheelHeld.up && !wheelHeld.down ? 1 : wheelHeld.down && !wheelHeld.up ? -1 : 0
+      if (dir === 0) return
+      wheelValue.current = Math.max(0, Math.min(1, wheelValue.current + dir * 0.05))
+      onModRef.current?.(wheelValue.current)
+    }
+    const syncBend = () => {
+      onPitchBendRef.current?.(
+        bendHeld.right && !bendHeld.left
+          ? PITCH_BEND_CENTS
+          : bendHeld.left && !bendHeld.right
+            ? -PITCH_BEND_CENTS
+            : 0,
+      )
+    }
+
     const down = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      if (e.key.startsWith('Arrow')) {
+        e.preventDefault()
         if (e.repeat) return
-        if (onOctaveShiftRef.current) {
-          e.preventDefault()
-          onOctaveShiftRef.current(e.key === 'ArrowUp' ? 1 : -1)
+        if (e.key === 'ArrowLeft') bendHeld.left = true
+        else if (e.key === 'ArrowRight') bendHeld.right = true
+        else if (e.key === 'ArrowUp') wheelHeld.up = true
+        else if (e.key === 'ArrowDown') wheelHeld.down = true
+        syncBend()
+        if ((wheelHeld.up || wheelHeld.down) && wheelTimer === null) {
+          pushMod()
+          wheelTimer = window.setInterval(pushMod, 45)
         }
         return
       }
@@ -200,7 +242,19 @@ export function useKeyboardInput(opts: {
       }
     }
     const up = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') return
+      if (e.key.startsWith('Arrow')) {
+        e.preventDefault()
+        if (e.key === 'ArrowLeft') bendHeld.left = false
+        else if (e.key === 'ArrowRight') bendHeld.right = false
+        else if (e.key === 'ArrowUp') wheelHeld.up = false
+        else if (e.key === 'ArrowDown') wheelHeld.down = false
+        syncBend()
+        if (!wheelHeld.up && !wheelHeld.down && wheelTimer !== null) {
+          window.clearInterval(wheelTimer)
+          wheelTimer = null
+        }
+        return
+      }
       const midi = heldKeys.current.get(e.key) ?? keyToMidi(baseCRef.current, e.key)
       heldKeys.current.delete(e.key)
       if (midi !== null) onNoteOffRef.current(midi)
@@ -210,6 +264,7 @@ export function useKeyboardInput(opts: {
     return () => {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
+      if (wheelTimer !== null) window.clearInterval(wheelTimer)
     }
   }, [])
 }

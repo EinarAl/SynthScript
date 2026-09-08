@@ -24,28 +24,45 @@ interface OscStub {
   onended: (() => void) | null
 }
 
+interface GainStub {
+  gain: {
+    value: number
+    setValueAtTime: ReturnType<typeof vi.fn>
+    exponentialRampToValueAtTime: ReturnType<typeof vi.fn>
+    linearRampToValueAtTime: ReturnType<typeof vi.fn>
+    cancelScheduledValues: ReturnType<typeof vi.fn>
+    setTargetAtTime: ReturnType<typeof vi.fn>
+  }
+  connect: ReturnType<typeof vi.fn>
+  disconnect: ReturnType<typeof vi.fn>
+}
+
 interface CtxStub {
   stopped: number[]
   createdOscs: OscStub[]
   createdSources: SourceStub[]
+  createdGains: GainStub[]
 }
 
 function createEngine(presetId = 'clean'): { engine: SynthEngine; ctx: CtxStub } {
   const stopped: number[] = []
   const createdOscs: OscStub[] = []
   const createdSources: SourceStub[] = []
+  const createdGains: GainStub[] = []
 
-  const makeGain = () => ({
-    gain: {
+  const makeGain = (): GainStub => {
+    const gain = {
       value: 0.0001,
       setValueAtTime: vi.fn(),
       exponentialRampToValueAtTime: vi.fn(),
+      linearRampToValueAtTime: vi.fn(),
       cancelScheduledValues: vi.fn(),
       setTargetAtTime: vi.fn(),
-    },
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-  }) as unknown as GainNode
+    }
+    const stub = { gain, connect: vi.fn(), disconnect: vi.fn() }
+    createdGains.push(stub)
+    return stub
+  }
 
   const makeFilter = () => ({
     type: 'lowpass',
@@ -112,7 +129,7 @@ function createEngine(presetId = 'clean'): { engine: SynthEngine; ctx: CtxStub }
 
   return {
     engine: new SynthEngine(getPreset(presetId)),
-    ctx: { stopped, createdOscs, createdSources },
+    ctx: { stopped, createdOscs, createdSources, createdGains },
   }
 }
 
@@ -311,5 +328,40 @@ describe('scheduled voices (noteOnAt / noteOffAt)', () => {
     expect(ctx.createdOscs).toHaveLength(1)
     expect(ctx.createdOscs[0].start).toHaveBeenCalledWith(3)
     expect(ctx.createdOscs[0].stop).toHaveBeenCalled()
+  })
+})
+
+describe('pitch bend and mod wheel', () => {
+  it('bends every ringing osc voice', () => {
+    const { engine, ctx } = createEngine('clean')
+    engine.noteOn(60)
+    // gains: master, envelope, bend
+    const bendGain = ctx.createdGains[2]
+    engine.setPitchBend(200)
+    expect(bendGain.gain.setTargetAtTime).toHaveBeenCalledWith(200, 0, 0.03)
+  })
+
+  it('bakes the current bend into voices started mid-bend', () => {
+    const { engine, ctx } = createEngine('clean')
+    engine.setPitchBend(-150)
+    engine.noteOn(60)
+    expect(ctx.createdGains[2].gain.setValueAtTime).toHaveBeenCalledWith(-150, 0)
+  })
+
+  it('scales vibrato depth of ringing voices by the mod wheel', () => {
+    const { engine, ctx } = createEngine('cumbia')
+    engine.noteOn(60)
+    // gains: master, envelope, bend, lfo
+    const lfoGain = ctx.createdGains[3]
+    engine.setMod(0.6)
+    expect(lfoGain.gain.setTargetAtTime).toHaveBeenCalledWith(9 * 0.6, 0, 0.05)
+  })
+
+  it('fades new voices in toward the current wheel position', () => {
+    const { engine, ctx } = createEngine('cumbia')
+    engine.setMod(0.5)
+    engine.noteOn(60)
+    expect(ctx.createdGains[3].gain.setValueAtTime).toHaveBeenCalledWith(0, 0)
+    expect(ctx.createdGains[3].gain.linearRampToValueAtTime).toHaveBeenCalledWith(9 * 0.5, 0 + 0.35)
   })
 })

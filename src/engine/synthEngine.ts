@@ -11,6 +11,7 @@ interface Voice {
   releasing: boolean
   ended: boolean
   lfoGain?: GainNode
+  bendGain?: GainNode
 }
 
 const LOOP_KEY_BASE = 128 // loop voice keys live at or above this, clear of live notes
@@ -23,6 +24,8 @@ export class SynthEngine {
   private masterGainValue: number = 0.8
   private sampleBanks = new Map<SampleBankName, Promise<Map<number, AudioBuffer>>>()
   private loadedBanks = new Map<SampleBankName, Map<number, AudioBuffer>>()
+  private bend = 0
+  private mod = 0
 
   constructor(preset: Preset) {
     this.preset = preset
@@ -94,6 +97,28 @@ export class SynthEngine {
     }
   }
 
+  // Pitch bend, in cents. Applied live to every ringing osc voice and baked
+  // into voices started while the bend is held.
+  setPitchBend(cents: number): void {
+    this.bend = cents
+    const now = this.ctx ? this.ctx.currentTime : 0
+    for (const voice of this.voices.values()) {
+      if (voice.bendGain) voice.bendGain.gain.setTargetAtTime(cents, now, 0.03)
+    }
+  }
+
+  // Mod wheel, 0..1. Scales the vibrato depth of ringing voices and of voices
+  // started while the wheel sits where it sits.
+  setMod(value: number): void {
+    this.mod = Math.max(0, Math.min(1, value))
+    const now = this.ctx ? this.ctx.currentTime : 0
+    for (const voice of this.voices.values()) {
+      if (voice.lfoGain) {
+        voice.lfoGain.gain.setTargetAtTime((voice.preset.vibratoDepth ?? 0) * this.mod, now, 0.05)
+      }
+    }
+  }
+
   noteOn(noteNumber: number, velocity: number = 1): void {
     const ctx = this.ensureContext()
     this.startVoice(noteNumber, noteNumber, velocity, this.preset, ctx.currentTime)
@@ -144,6 +169,7 @@ export class SynthEngine {
     const kind = p.voiceKind ?? 'osc'
     const sources: AudioScheduledSourceNode[] = []
     let lfoGain: GainNode | undefined
+    let bendGain: GainNode | undefined
 
     if (kind === 'sample') {
       const bankName = p.sampleBank
@@ -179,6 +205,15 @@ export class SynthEngine {
         sources.push(osc)
       }
 
+      // Pitch bend: a per-voice gain injected into every note oscillator's
+      // detune, holding the current bend position so new voices inherit it and
+      // ringing voices are nudged live. Sample presets are left unbent.
+      bendGain = ctx.createGain()
+      bendGain.gain.setValueAtTime(this.bend, now)
+      for (const src of sources) {
+        bendGain.connect((src as OscillatorNode).detune)
+      }
+
       // Singing vibrato: a sine LFO modulates every oscillator's detune, ramping
       // in after vibratoDelay so sustained notes warble like arranger-keyboard
       // flute/reed presets instead of staying static.
@@ -189,7 +224,7 @@ export class SynthEngine {
         lfoGain = ctx.createGain()
         lfoGain.gain.setValueAtTime(0, now)
         lfoGain.gain.linearRampToValueAtTime(
-          p.vibratoDepth ?? 9,
+          (p.vibratoDepth ?? 0) * this.mod,
           now + Math.max(p.vibratoDelay ?? 0.3, 0),
         )
         for (const src of sources) {
@@ -201,7 +236,7 @@ export class SynthEngine {
       }
     }
 
-    this.voices.set(key, { kind, sources, gain: env, filter, preset: p, releasing: false, ended: false, lfoGain })
+    this.voices.set(key, { kind, sources, gain: env, filter, preset: p, releasing: false, ended: false, lfoGain, bendGain })
   }
 
   noteOff(noteNumber: number): void {
@@ -236,6 +271,7 @@ export class SynthEngine {
       try { voice.gain.disconnect() } catch {}
       try { voice.filter.disconnect() } catch {}
       try { voice.lfoGain?.disconnect() } catch {}
+      try { voice.bendGain?.disconnect() } catch {}
     }
 
     if (voice.kind === 'osc') {
