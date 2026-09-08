@@ -179,8 +179,9 @@ export function useKeyboardInput(opts: {
   onNoteOff: (n: number) => void
   onOctaveShift?: (dir: 1 | -1) => void
   onMod?: (value: number) => void
+  onPitchBend?: (cents: number) => void
 }) {
-  const { baseC, onNoteOn, onNoteOff, onOctaveShift, onMod } = opts
+  const { baseC, onNoteOn, onNoteOff, onOctaveShift, onMod, onPitchBend } = opts
   const baseCRef = useRef(baseC)
   baseCRef.current = baseC
   const onNoteOnRef = useRef(onNoteOn)
@@ -191,19 +192,20 @@ export function useKeyboardInput(opts: {
   onOctaveShiftRef.current = onOctaveShift
   const onModRef = useRef(onMod)
   onModRef.current = onMod
+  const onPitchBendRef = useRef(onPitchBend)
+  onPitchBendRef.current = onPitchBend
   // Physical key -> the MIDI note it was pressed at. Releasing must stop the
   // original note, not one re-derived under a different range.
   const heldKeys = useRef(new Map<string, number>())
 
   useEffect(() => {
-    const wheelHeld = { up: false, down: false }
+    const wheelOn = { up: false }
     const wheelValue = { current: 0 }
     let wheelTimer: number | null = null
 
     const pushMod = () => {
-      const dir = wheelHeld.up && !wheelHeld.down ? 1 : wheelHeld.down && !wheelHeld.up ? -1 : 0
-      if (dir === 0) return
-      wheelValue.current = Math.max(0, Math.min(1, wheelValue.current + dir * 0.05))
+      if (!wheelOn.up) return
+      wheelValue.current = Math.min(1, wheelValue.current + 0.05)
       onModRef.current?.(wheelValue.current)
     }
 
@@ -213,11 +215,12 @@ export function useKeyboardInput(opts: {
         if (e.repeat) return
         if (e.key === 'ArrowLeft') onOctaveShiftRef.current?.(-1)
         else if (e.key === 'ArrowRight') onOctaveShiftRef.current?.(1)
-        else if (e.key === 'ArrowUp') wheelHeld.up = true
-        else if (e.key === 'ArrowDown') wheelHeld.down = true
-        if ((wheelHeld.up || wheelHeld.down) && wheelTimer === null) {
+        else if (e.key === 'ArrowUp') {
+          wheelOn.up = true
           pushMod()
-          wheelTimer = window.setInterval(pushMod, 45)
+          if (wheelTimer === null) wheelTimer = window.setInterval(pushMod, 45)
+        } else if (e.key === 'ArrowDown') {
+          onPitchBendRef.current?.(-200)
         }
         return
       }
@@ -231,11 +234,14 @@ export function useKeyboardInput(opts: {
     const up = (e: KeyboardEvent) => {
       if (e.key.startsWith('Arrow')) {
         e.preventDefault()
-        if (e.key === 'ArrowUp') wheelHeld.up = false
-        else if (e.key === 'ArrowDown') wheelHeld.down = false
-        if (!wheelHeld.up && !wheelHeld.down && wheelTimer !== null) {
-          window.clearInterval(wheelTimer)
-          wheelTimer = null
+        if (e.key === 'ArrowUp') {
+          wheelOn.up = false
+          if (wheelTimer !== null) {
+            window.clearInterval(wheelTimer)
+            wheelTimer = null
+          }
+        } else if (e.key === 'ArrowDown') {
+          onPitchBendRef.current?.(0)
         }
         return
       }

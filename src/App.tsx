@@ -8,7 +8,7 @@ import { validatePreset, type Preset } from './engine/presets'
 const DEFAULT_BASE_C = 48 // C3
 
 export default function App() {
-  const { activeNotes, noteOn, noteOff, allNotesOff, preset, setPreset, setMasterGain, setMod, presets, samplesLoading, loopState, metronomeOn, bpm, toggleMetronome, setTempo, startLoopRecording, stopLoop, pauseLoop, resumeLoop, setLoopLayerMuted, cancelRecording } = useSynth()
+  const { activeNotes, noteOn, noteOff, allNotesOff, preset, setPreset, setMasterGain, setPitchBend, setMod, presets, samplesLoading, loopState, metronomeOn, bpm, toggleMetronome, setTempo, startLoopRecording, stopLoop, pauseLoop, resumeLoop, setLoopLayerMuted, cancelRecording } = useSynth()
   const [baseC, setBaseC] = useState(DEFAULT_BASE_C)
   const [masterGain, setMasterGainLocal] = useState(0.8)
   const [audioBlocked, setAudioBlocked] = useState(false)
@@ -48,7 +48,7 @@ export default function App() {
     setMasterGain(v)
   }
 
-  useKeyboardInput({ baseC, onNoteOn: noteOn, onNoteOff: noteOff, onOctaveShift, onMod: setMod })
+  useKeyboardInput({ baseC, onNoteOn: noteOn, onNoteOff: noteOff, onOctaveShift, onMod: setMod, onPitchBend: setPitchBend })
 
   const unlock = () => {
     noteOn(baseC);
@@ -92,7 +92,7 @@ export default function App() {
       />
       <PresetPanel current={preset} onImport={selectPreset} />
       <p className="hint">
-        Play with your keyboard. A–; are the white keys, W E T Y U O P are the black keys. Left/Right shift octave, Up/Down work the modulation wheel.
+        Play with your keyboard. A–; are the white keys, W E T Y U O P are the black keys. Left/Right shift octave, hold Up for vibrato, hold Down to bend the pitch.
       </p>
     </div>
   )
