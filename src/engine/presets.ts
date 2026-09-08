@@ -16,6 +16,10 @@ export interface Preset {
   filterQ: number
   detune: number
   gain: number
+  vibratoRate?: number
+  vibratoDepth?: number
+  vibratoDelay?: number
+  octave?: number
   sampleBank?: SampleBankName
 }
 
@@ -67,19 +71,44 @@ export const presets: Preset[] = [
     gain: 0.25,
   },
   {
-    id: 'cumbia',
-    name: 'Cumbia',
+    id: 'chorus',
+    name: 'Chorus',
     voiceKind: 'osc',
-    wave: 'sawtooth',
-    attack: 0.005,
-    decay: 0.2,
-    sustain: 0.8,
-    release: 0.3,
+    // Fat, wide square stab: the throwaway chorus voicing from the first cumbia
+    // attempt, kept because it is genuinely fun on its own.
+    wave: 'square',
+    attack: 0.003,
+    decay: 0.15,
+    sustain: 0.75,
+    release: 0.22,
     filterType: 'lowpass',
-    filterFreq: 3000,
-    filterQ: 1.2,
-    detune: 9,
-    gain: 0.26,
+    filterFreq: 3600,
+    filterQ: 1.6,
+    detune: 18,
+    gain: 0.24,
+  },
+  {
+    id: 'cumbia',
+    name: 'Cumbia Lead',
+    voiceKind: 'osc',
+    // Arranger-keyboard flute/reed lead that anchors cumbia villera riffs
+    // (Supermerk2's La Lata punteo, Lescano's Juno-106 melodies): a square
+    // doubled an octave up, band-passed for nasal cup-mouth brightness, with
+    // the singing LFO vibrato that fades in on sustained notes.
+    wave: 'square',
+    attack: 0.004,
+    decay: 0.2,
+    sustain: 0.85,
+    release: 0.28,
+    filterType: 'bandpass',
+    filterFreq: 2400,
+    filterQ: 0.9,
+    detune: 6,
+    vibratoRate: 5.5,
+    vibratoDepth: 9,
+    vibratoDelay: 0.35,
+    octave: 12,
+    gain: 0.3,
   },
   {
     id: 'harpsichord',
@@ -150,6 +179,9 @@ export function validatePreset(value: unknown): Preset | null {
   const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
   for (const f of ['attack', 'decay', 'sustain', 'release', 'filterFreq', 'filterQ', 'detune', 'gain'] as const) {
     if (!num(p[f])) return null
+  }
+  for (const f of ['vibratoRate', 'vibratoDepth', 'vibratoDelay', 'octave'] as const) {
+    if (typeof p[f] !== 'undefined' && !num(p[f])) return null
   }
   return p as unknown as Preset
 }

@@ -30,6 +30,24 @@ describe('built-in presets', () => {
     expect(getPreset('dusk').sampleBank).toBeUndefined()
   })
 
+  it('keeps the throwaway chorus square as its own voice', () => {
+    const chorus = getPreset('chorus')
+    expect(chorus.voiceKind).toBe('osc')
+    expect(chorus.wave).toBe('square')
+    expect(chorus.detune).toBe(18)
+    expect(chorus.filterType).toBe('lowpass')
+    expect(chorus.vibratoDepth).toBeUndefined()
+  })
+
+  it('voices the cumbia lead with vibrato and an octave doubler', () => {
+    const cumbia = getPreset('cumbia')
+    expect(cumbia.wave).toBe('square')
+    expect(cumbia.filterType).toBe('bandpass')
+    expect(cumbia.vibratoDepth).toBeGreaterThan(0)
+    expect(cumbia.vibratoRate).toBeGreaterThan(0)
+    expect(cumbia.octave).toBe(12)
+  })
+
   it('saves the original organ voicing under Dusk', () => {
     const dusk = getPreset('dusk')
     expect(dusk.voiceKind).toBe('osc')
@@ -39,9 +57,20 @@ describe('built-in presets', () => {
 })
 
 describe('validatePreset', () => {
-  it('accepts a valid preset', () => {
+  it('accepts valid preset', () => {
     const p = getPreset('synth')
     expect(validatePreset(p)).not.toBeNull()
+  })
+
+  it('accepts vibrato and octave fields', () => {
+    const p = { ...getPreset('cumbia') }
+    expect(validatePreset(p)).toEqual(p)
+  })
+
+  it('rejects non-numeric vibrato fields', () => {
+    const p = { ...getPreset('cumbia') } as Record<string, unknown>
+    p.vibratoDepth = 'deep'
+    expect(validatePreset(p)).toBeNull()
   })
 
   it('rejects non-objects', () => {

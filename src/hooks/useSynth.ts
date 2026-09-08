@@ -147,7 +147,7 @@ export function useSynth() {
     preset,
     setPreset,
     setMasterGain,
-    presets: [getPreset('clean'), getPreset('piano'), getPreset('synth'), getPreset('cumbia'), getPreset('harpsichord'), getPreset('organ'), getPreset('dusk')],
+    presets: [getPreset('clean'), getPreset('piano'), getPreset('synth'), getPreset('chorus'), getPreset('cumbia'), getPreset('harpsichord'), getPreset('organ'), getPreset('dusk')],
     samplesLoading,
     loopState,
     metronomeOn,

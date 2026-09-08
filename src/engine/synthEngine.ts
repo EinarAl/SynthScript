@@ -10,6 +10,7 @@ interface Voice {
   preset: Preset
   releasing: boolean
   ended: boolean
+  lfoGain?: GainNode
 }
 
 const LOOP_KEY_BASE = 128 // loop voice keys live at or above this, clear of live notes
@@ -142,6 +143,7 @@ export class SynthEngine {
 
     const kind = p.voiceKind ?? 'osc'
     const sources: AudioScheduledSourceNode[] = []
+    let lfoGain: GainNode | undefined
 
     if (kind === 'sample') {
       const bankName = p.sampleBank
@@ -165,19 +167,41 @@ export class SynthEngine {
       sources.push(src)
     } else {
       const freq = midiToFrequency(midiNote)
-      const oscCount = p.detune > 0 ? 2 : 1
+      const oscCount = p.detune > 0 || (p.octave ?? 0) !== 0 ? 2 : 1
       for (let i = 0; i < oscCount; i++) {
         const osc = ctx.createOscillator()
         osc.type = p.wave
-        osc.frequency.value = freq
-        if (i === 1) osc.detune.value = p.detune
+        osc.frequency.value =
+          i === 1 && (p.octave ?? 0) !== 0 ? freq * Math.pow(2, (p.octave ?? 0) / 12) : freq
+        if (i === 1 && p.detune > 0) osc.detune.value = p.detune
         osc.connect(env)
         osc.start(now)
         sources.push(osc)
       }
+
+      // Singing vibrato: a sine LFO modulates every oscillator's detune, ramping
+      // in after vibratoDelay so sustained notes warble like arranger-keyboard
+      // flute/reed presets instead of staying static.
+      if ((p.vibratoDepth ?? 0) > 0) {
+        const lfo = ctx.createOscillator()
+        lfo.type = 'sine'
+        lfo.frequency.value = p.vibratoRate ?? 5.5
+        lfoGain = ctx.createGain()
+        lfoGain.gain.setValueAtTime(0, now)
+        lfoGain.gain.linearRampToValueAtTime(
+          p.vibratoDepth ?? 9,
+          now + Math.max(p.vibratoDelay ?? 0.3, 0),
+        )
+        for (const src of sources) {
+          lfoGain.connect((src as OscillatorNode).detune)
+        }
+        lfo.connect(lfoGain)
+        lfo.start(now)
+        sources.push(lfo)
+      }
     }
 
-    this.voices.set(key, { kind, sources, gain: env, filter, preset: p, releasing: false, ended: false })
+    this.voices.set(key, { kind, sources, gain: env, filter, preset: p, releasing: false, ended: false, lfoGain })
   }
 
   noteOff(noteNumber: number): void {
@@ -211,6 +235,7 @@ export class SynthEngine {
       if (this.voices.get(noteNumber) === voice) this.voices.delete(noteNumber)
       try { voice.gain.disconnect() } catch {}
       try { voice.filter.disconnect() } catch {}
+      try { voice.lfoGain?.disconnect() } catch {}
     }
 
     if (voice.kind === 'osc') {
