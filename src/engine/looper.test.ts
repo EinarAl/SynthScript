@@ -277,16 +277,16 @@ describe('Looper recording', () => {
     expect(h.ctx.createdOscs.length).toBeGreaterThan(0)
   })
 
-  it('uses a 3-beat count-in ending on the downbeat', () => {
+  it('uses a 4-beat count-in ending on the downbeat', () => {
     const h = makeHarness()
     const lo = new Looper({ engine: h.engine, setInterval: (fn, ms) => h.queue.register(fn, ms) })
 
     h.ctx.currentTime = 0
-    // at 120bpm one beat = 0.5s; 3-beat count-in ends at the bar boundary 2.0
+    // at 120bpm one beat = 0.5s; 4-beat count-in ends at the bar boundary 2.0
     const { gridStart, countInStart } = lo.startRecording(120, 1, 0)
 
     expect(gridStart).toBe(2) // 2.0s is a bar boundary (2 = 1 bar * 2s)
-    expect(countInStart).toBe(0.5) // clicks at 0.5, 1.0, 1.5 lead into the take
+    expect(countInStart).toBe(0) // clicks at 0.0, 0.5, 1.0, 1.5 lead into the take
 
     // state reports counting in before the grid opens
     const states: Array<{ recording: boolean; countingIn: boolean; recordingBar: number | null; countInBeats: number | null }> = []
@@ -297,7 +297,7 @@ describe('Looper recording', () => {
     expect(states[0].recording).toBe(true)
     expect(states[0].countingIn).toBe(true)
     expect(states[0].recordingBar).toBeNull()
-    // clicks at 0.5, 1.0, 1.5 are still to come
+    // clicks at 0.5, 1.0, 1.5 are still to come, then the take starts
     expect(states[states.length - 1].countInBeats).toBe(3)
 
     h.ctx.currentTime = 2.1
@@ -308,17 +308,17 @@ describe('Looper recording', () => {
     expect(active.countInBeats).toBeNull()
   })
 
-  it('counts in 3 clicks even when the bar boundary would clip the lead-up', () => {
+  it('counts in 4 clicks even when the bar boundary would clip the lead-up', () => {
     const h = makeHarness()
     const lo = new Looper({ engine: h.engine, setInterval: (fn, ms) => h.queue.register(fn, ms) })
 
-    // right on a bar boundary: aligning now+3beats would give gridStart=now,
-    // so it rolls over to the next bar and keeps the full 3 clicks audible
+    // right on a bar boundary: aligning now+4beats would give gridStart=now,
+    // so it rolls over to the next bar and keeps the full 4 clicks audible
     h.ctx.currentTime = 2.0
     const { gridStart, countInStart } = lo.startRecording(120, 1, 2.0)
 
     expect(gridStart).toBe(4)
-    expect(countInStart).toBe(2.5)
+    expect(countInStart).toBe(2.0)
   })
 
   it('loops back immediately after recording ends, even when the finalize tick runs late', () => {

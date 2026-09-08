@@ -41,7 +41,7 @@ const TICK_MS = 25
 const LOOP_KEY_BASE = 128 // loop voice keys live at or above this, clear of live notes
 const LAYER_KEY_STRIDE = 128 // separation between layers so muting one never steals another's voice
 const BEATS_PER_BAR = 4
-const COUNTIN_BEATS = 3 // warning clicks heard before recording begins
+const COUNTIN_BEATS = 4 // warning clicks heard before recording begins
 
 // Captures live keyboard input into discrete note events and replays them on a
 // shared bar-aligned grid. Live input is the only thing recorded: already
@@ -102,7 +102,7 @@ export class Looper {
     return () => this.listeners.delete(fn)
   }
 
-  // Begin capturing after a 3-beat count-in. The recording window is anchored
+  // Begin capturing after a 4-beat count-in. The recording window is anchored
   // to the first bar boundary at least COUNTIN_BEATS after now, so layers start
   // on a downbeat and every layer shares the same absolute bar grid. Returns
   // the grid start and the count-in start so the caller can drive the
